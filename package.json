@@ -1,0 +1,17 @@
+{
+  "name": "bdc-alter",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "typescript": "^5.5.3"
+  },
+  "private": true
+}
