@@ -2,16 +2,80 @@
   "name": "bdc-alter",
   "version": "1.0.0",
   "description": "",
-  "main": "src/main.js",
+  "type": "module",
+  "main": "electron/main/index.js",
   "scripts": {
-    "build": "tsc",
-    "start": "electron .",
-    "dev": "electron ."
+    "vite": "vite",
+    "build": "vite build",
+    "build:electron": "bun run build && electron-builder",
+    "preview": "vite preview",
+    "electron": "NODE_ENV=production electron .",
+    "electron:only": "NODE_ENV=development electron .",
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && NODE_ENV=development electron .\"",
+    "start": "bun run dev",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@types/selenium-webdriver": "^4.1.28",
+    "chromedriver": "^139.0.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.539.0",
+    "playwright": "^1.54.2",
+    "playwright-extra": "^4.3.6",
+    "playwright-extra-plugin-stealth": "^0.0.1",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "selenium-webdriver": "^4.35.0",
+    "solvecaptcha-javascript": "github:solvercaptcha/solvecaptcha-javascript",
+    "tailwind-merge": "^3.3.1"
+  },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.12",
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^24.3.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.4.21",
+    "concurrently": "^9.2.0",
+    "dotenv": "^17.2.1",
     "electron": "^37.2.6",
-    "typescript": "^5.5.3"
+    "electron-builder": "^26.0.12",
+    "electron-is-dev": "^3.0.1",
+    "postcss": "^8.5.6",
+    "puppeteer": "^24.16.2",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.5.3",
+    "vite": "^7.1.2",
+    "wait-on": "^8.0.4"
   },
-  "private": true
+  "private": true,
+  "build": {
+    "appId": "com.yourcompany.bdc-alter",
+    "productName": "BDC Alter Browser",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.png"
+    }
+  }
 }

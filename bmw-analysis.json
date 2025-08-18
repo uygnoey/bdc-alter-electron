@@ -1,0 +1,34 @@
+{
+  "oauthInfo": {
+    "url": "https://customer.bmwgroup.com/oneid/#/login?client=dcbmw&country=KR&language=ko&brand=bmw&scope=openid%20authenticate_user&response_type=code&redirect_uri=https%3A%2F%2Fdriving-center.bmw.co.kr%2Flogin%2Foauth2%2Fcode%2Fgcdm&state=80dadda0f94f4e1ca44578886f7c8a49",
+    "title": "BMW 고객 계정 로그인",
+    "inputs": [
+      {
+        "type": "text",
+        "name": "email",
+        "id": "email",
+        "placeholder": "",
+        "visible": true,
+        "className": "custom-input-field __b"
+      },
+      {
+        "type": "password",
+        "name": "password",
+        "id": "password",
+        "placeholder": "",
+        "visible": false,
+        "className": "custom-input-field __b"
+      }
+    ],
+    "buttons": [
+      {
+        "text": "계속",
+        "type": "submit",
+        "disabled": true,
+        "className": "custom-button __b primary"
+      }
+    ],
+    "forms": 1
+  },
+  "timestamp": "2025-08-18T05:19:28.566Z"
+}
