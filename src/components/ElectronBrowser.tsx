@@ -11,25 +11,7 @@ interface Tab {
   loading?: boolean
 }
 
-declare global {
-  interface Window {
-    electronAPI: {
-      platform: string
-      browser: {
-        createTab: (url: string) => Promise<{ id: string; url: string }>
-        switchTab: (id: string) => Promise<boolean>
-        closeTab: (id: string) => Promise<boolean>
-        navigate: (data: { id?: string; url: string }) => Promise<boolean>
-        goBack: (id?: string) => Promise<boolean>
-        goForward: (id?: string) => Promise<boolean>
-        reload: (id?: string) => Promise<boolean>
-        onUrlChanged: (callback: (data: { id: string; url: string }) => void) => void
-        onTitleChanged: (callback: (data: { id: string; title: string }) => void) => void
-        onLoadingState: (callback: (data: { id: string; loading: boolean }) => void) => void
-      }
-    }
-  }
-}
+// Type definitions are in src/types/electron.d.ts
 
 export default function ElectronBrowser() {
   const [tabs, setTabs] = useState<Tab[]>([])

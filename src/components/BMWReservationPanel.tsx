@@ -1,19 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Car, User, Calendar, PlayCircle, StopCircle, CheckCircle, AlertCircle, RefreshCw, Clock } from 'lucide-react'
 
-declare global {
-  interface Window {
-    electronAPI: {
-      bmw: {
-        analyzeSite: () => Promise<any>
-        autoLogin: (credentials: { username: string; password: string }) => Promise<any>
-        checkReservation: (programs: string[]) => Promise<any>
-        fetchPrograms: () => Promise<any>
-        onProgramsUpdated: (callback: (data: any) => void) => void
-      }
-    }
-  }
-}
+// Type definitions are in src/types/electron.d.ts
 
 export default function BMWReservationPanel() {
   const [credentials, setCredentials] = useState({ username: '', password: '' })
