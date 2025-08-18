@@ -9,8 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an Electron application project named `bdc-alter` that can display web pages in a desktop window with browser-like features including tabs, navigation controls, and URL input.
-일렉트론 기반의 데스크톱 애플리케이션으로 웹 페이지를 표시할 수 있으며, 탭, 네비게이션 컨트롤, URL 입력 등 브라우저 기능을 포함합니다.
+BMW 드라이빙 센터 예약 모니터링 시스템 - Electron + React + Tailwind CSS v4 기반 데스크톱 애플리케이션
+BMW Driving Center reservation monitoring system - Desktop application based on Electron + React + Tailwind CSS v4
 
 ## Commands
 
@@ -34,28 +34,68 @@ Starts the Electron application / 일렉트론 애플리케이션을 시작합�
 
 ## Project Structure
 
-- `src/` directory contains:
-  - `main.js`: Electron main process (메인 프로세스)
-  - `preload.js`: Preload script for security context (보안 컨텍스트용 프리로드 스크립트)
-  - `index.html`: Renderer process UI with tab management and webview (탭 관리와 웹뷰가 있는 렌더러 프로세스 UI)
-  - `index.ts`: TypeScript entry point (TypeScript 진입점)
-- `dist/`: Compiled TypeScript output directory
-- TypeScript configuration uses strict mode with ES2016 target
-- Module system: CommonJS with esModuleInterop enabled
+- `electron/` directory:
+  - `main/index.js`: Electron main process with BMW automation (BMW 자동화가 포함된 메인 프로세스)
+  - `main/bmw-programs-parser.js`: BMW 프로그램 목록 파싱 모듈
+  - `main/solvecaptcha-wrapper.js`: SolveCaptcha API wrapper
+  - `preload/index.js`: IPC bridge for renderer process (렌더러 프로세스용 IPC 브리지)
+- `src/` directory:
+  - `components/ElectronBrowser.tsx`: Main browser component with split view
+  - `components/BMWReservationPanel.tsx`: BMW reservation settings panel
+  - `types/electron.d.ts`: TypeScript type definitions
+- Vite + React + TypeScript configuration
+- Tailwind CSS v4 with PostCSS
 
 ## Development Progress Tracking / 개발 진행 상황 추적
 
 ### Completed Tasks / 완료된 작업
-1. ✅ Electron and dependencies installed with bun / bun으로 일렉트론 및 의존성 설치 완료
-2. ✅ main.js created - Electron main process with window management / main.js 생성 - 윈도우 관리가 포함된 일렉트론 메인 프로세스
-3. ✅ preload.js created - Security context bridge / preload.js 생성 - 보안 컨텍스트 브리지
-4. ✅ index.html created - Full-featured browser UI with tabs / index.html 생성 - 탭 기능이 있는 브라우저 UI
-5. ✅ package.json scripts updated for Electron / 일렉트론용 package.json 스크립트 업데이트
-6. ✅ CLAUDE.md updated with project information / 프로젝트 정보로 CLAUDE.md 업데이트
+1. ✅ Electron + React + Tailwind CSS v4 기반 데스크톱 앱 구현
+2. ✅ 50:50 분할 화면 레이아웃 (BMW 예약 설정 패널 / BrowserView)
+3. ✅ BMW OAuth 자동 로그인 (이메일 → 비밀번호 → hCaptcha)
+4. ✅ SolveCaptcha API 통합 (hCaptcha 자동 해결)
+5. ✅ 프로그램 목록 파싱 (Experience, Training, Owner 카테고리 - Junior Campus 제외)
+6. ✅ 다중 프로그램 선택 UI (체크박스 형태)
+7. ✅ 예약 모니터링 기능
+8. ✅ 사용하지 않는 코드 정리 및 최적화
 
 ## Key Features / 주요 기능
-- Web page display using webview tags / webview 태그를 사용한 웹 페이지 표시
-- Tab management (create, switch, close) / 탭 관리 (생성, 전환, 닫기)
-- Navigation controls (back, forward, reload, home) / 네비게이션 컨트롤 (뒤로, 앞으로, 새로고침, 홈)
-- URL input and navigation / URL 입력 및 이동
-- Security: contextIsolation enabled, nodeIntegration disabled / 보안: contextIsolation 활성화, nodeIntegration 비활성화
+
+### BMW 예약 모니터링 / BMW Reservation Monitoring
+- BMW OAuth 자동 로그인 (2단계: 이메일 → 비밀번호)
+- hCaptcha 자동 감지 및 SolveCaptcha API 연동
+- 프로그램 목록 실시간 파싱 (테이블 헤더 기반)
+- 다중 프로그램 선택 가능 (체크박스 UI)
+- 예약 가능 여부 주기적 확인 (30초/1분/2분/5분)
+- 알림 기능 (브라우저 노티피케이션)
+
+### 기술적 특징 / Technical Features
+- Electron BrowserView (iframe 대신)
+- IPC 통신으로 메인/렌더러 프로세스 분리
+- TypeScript + React 19.1.1
+- Tailwind CSS v4 + PostCSS
+- Vite 번들링
+
+## Important Notes / 중요 사항
+
+### BMW 사이트 구조
+- 로그인 URL: https://oneid.bmw.co.kr
+- 프로그램 페이지: https://driving-center.bmw.co.kr/useAmount/view
+- 프로그램 카테고리: Experience, Training, Owner (Junior Campus는 파싱 제외)
+- rowspan 처리 필요 (예: Taxi 프로그램)
+
+### 환경 변수 / Environment Variables
+`.env` 파일에 BMW 계정 정보 저장:
+```
+BMW_USERNAME=your_email@example.com
+BMW_PASSWORD=your_password
+SOLVECAPTCHA_API_KEY=your_api_key
+```
+
+### 주의사항
+- hCaptcha는 로그인 버튼 클릭 **후** 나타남
+- Vue.js SPA이므로 페이지 로드 대기 필요
+- 프로그램명 파싱 시 "분", "원" 등 제외 필요
+
+## GitHub Repository
+- URL: https://github.com/uygnoey/bdc-alter-electron
+- Main branch: main
