@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { ArrowLeft, ArrowRight, RotateCw, Home, Plus, X, Loader2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, RotateCw, Home, Plus, X, Loader2, Code2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import SettingsPanel from './SettingsPanel'
+import BMWReservationPanel from './BMWReservationPanel'
 
 interface Tab {
   id: string
@@ -139,6 +139,11 @@ export default function ElectronBrowser() {
     await window.electronAPI.browser.reload(activeTabId)
   }
 
+  const toggleDevTools = async () => {
+    if (!window.electronAPI || !activeTabId) return
+    await window.electronAPI.browser.toggleDevTools(activeTabId)
+  }
+
   const goHome = () => {
     navigate('https://www.google.com')
   }
@@ -150,11 +155,17 @@ export default function ElectronBrowser() {
     // TODO: Apply settings to BrowserView
   }
 
+  // 부모 컴포넌트에서는 URL 변경만 관찰
+  // 실제 로그인 성공 판단은 메인 프로세스에서 처리
+
   return (
     <div className="flex h-full">
       {/* Left Panel - Settings (50%) */}
       <div className="w-1/2 h-full">
-        <SettingsPanel onSettingChange={handleSettingChange} />
+        <BMWReservationPanel 
+          onSettingChange={handleSettingChange} 
+          currentUrl={currentUrl}
+        />
       </div>
 
       {/* Right Panel - Browser (50%) */}
@@ -188,8 +199,16 @@ export default function ElectronBrowser() {
           <button
             onClick={addNewTab}
             className="p-1 hover:bg-neutral-300 rounded"
+            title="새 탭"
           >
             <Plus className="w-4 h-4" />
+          </button>
+          <button
+            onClick={toggleDevTools}
+            className="p-1 hover:bg-neutral-300 rounded ml-1"
+            title="개발자 도구 (F12)"
+          >
+            <Code2 className="w-4 h-4" />
           </button>
         </div>
 

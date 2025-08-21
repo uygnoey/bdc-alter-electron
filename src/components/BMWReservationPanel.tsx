@@ -3,7 +3,28 @@ import { Car, User, Calendar, PlayCircle, StopCircle, CheckCircle, AlertCircle, 
 
 // Type definitions are in src/types/electron.d.ts
 
-export default function BMWReservationPanel() {
+// 간단한 암호화/복호화 (실제로는 더 강력한 암호화 필요)
+const encryptPassword = (password: string): string => {
+  return btoa(password) // Base64 인코딩 (실제로는 더 강력한 암호화 사용 권장)
+}
+
+const decryptPassword = (encrypted: string): string => {
+  try {
+    return atob(encrypted) // Base64 디코딩
+  } catch {
+    return ''
+  }
+}
+
+interface BMWReservationPanelProps {
+  onSettingChange?: (setting: string, value: any) => void
+  currentUrl?: string
+}
+
+export default function BMWReservationPanel({ 
+  onSettingChange, 
+  currentUrl
+}: BMWReservationPanelProps) {
   const [credentials, setCredentials] = useState({ username: '', password: '' })
   const [isRunning, setIsRunning] = useState(false)
   const [checkInterval, setCheckInterval] = useState(30)
@@ -13,75 +34,60 @@ export default function BMWReservationPanel() {
   const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null)
   const [selectedPrograms, setSelectedPrograms] = useState<string[]>([])
   const [notificationEmail, setNotificationEmail] = useState<string>('')
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [programs, setPrograms] = useState<any[]>([])
+  // 로그인 상태 제거 - 모니터링 시작할 때만 로그인
+  
+  const [programs, setPrograms] = useState<string[]>([])
   const [programsLastUpdated, setProgramsLastUpdated] = useState<string | null>(null)
   const [isLoadingPrograms, setIsLoadingPrograms] = useState(false)
 
 
-  const login = async () => {
+  // 계정 정보 저장
+  const saveCredentials = () => {
     if (!credentials.username || !credentials.password) {
       setStatus('⚠️ 아이디와 비밀번호를 입력하세요')
       return false
     }
 
-    setStatus('로그인 시도 중...')
-    try {
-      const result = await window.electronAPI.bmw.autoLogin(credentials)
-      
-      // hCaptcha 감지된 경우
-      if (result.captcha) {
-        setStatus('🤖 hCaptcha 인증이 필요합니다! 브라우저에서 직접 체크해주세요.')
-        
-        // 사용자에게 알림
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('BMW 로그인', {
-            body: 'hCaptcha 인증이 필요합니다. 브라우저에서 체크해주세요.',
-            icon: '/bmw-logo.png'
-          })
-        }
-        
-        // hCaptcha 해결 대기 (수동)
-        setStatus('⏳ hCaptcha 해결 대기 중... 완료 후 다시 로그인 버튼을 눌러주세요.')
-        return false
-      }
-      
-      if (result.success || result.step === 'login_complete' || result.step === 'login_complete_enter') {
-        setStatus('✅ 로그인 성공!')
-        setIsLoggedIn(true)
-        return true
-      } else {
-        setStatus(`❌ 로그인 실패: ${result.error}`)
-        setIsLoggedIn(false)
-        return false
-      }
-    } catch (error) {
-      setStatus(`❌ 오류: ${error}`)
-      setIsLoggedIn(false)
-      return false
+    // 계정 정보 저장 (비밀번호는 암호화)
+    const encryptedCredentials = {
+      username: credentials.username,
+      password: encryptPassword(credentials.password)
     }
+    localStorage.setItem('bmw-credentials', JSON.stringify(encryptedCredentials))
+    setStatus('✅ 계정 정보 저장됨')
+    return true
   }
 
   const checkReservation = async () => {
+    if (selectedPrograms.length === 0) {
+      setStatus('⚠️ 프로그램을 선택해주세요')
+      return
+    }
+    
     setStatus('예약 가능 여부 확인 중...')
     setLastCheck(new Date())
     
     try {
-      const result = await window.electronAPI.bmw.checkReservation(selectedPrograms)
+      // 선택된 프로그램 정보 준비
+      const selectedProgramData = programs.filter(p => selectedPrograms.includes(p.name))
       
-      if (result.error) {
-        setStatus(`❌ 확인 실패: ${result.error}`)
+      const result = await window.electronAPI.bmw.monitor({ 
+        selectedPrograms: selectedProgramData 
+      })
+      
+      if (!result.success) {
+        setStatus(`❌ 확인 실패: ${result.message}`)
         return
       }
 
-      if (result.available) {
-        setAvailableSlots(result.slots)
-        setStatus(`🎉 예약 가능! ${result.slots.length}개 슬롯 발견`)
+      if (result.hasAvailability) {
+        setAvailableSlots(result.slots || [])
+        setStatus(`🎉 예약 가능! ${result.count}개 슬롯 발견`)
         
         // 알림 표시
         if ('Notification' in window && Notification.permission === 'granted') {
           new Notification('BMW 드라이빙 센터', {
-            body: `예약 가능한 슬롯이 ${result.slots.length}개 있습니다!`,
+            body: `예약 가능한 슬롯이 ${result.count}개 있습니다!`,
             icon: '/bmw-logo.png'
           })
         }
@@ -105,28 +111,43 @@ export default function BMWReservationPanel() {
       return
     }
     
-    // 먼저 로그인
+    // 계정 정보 저장
+    saveCredentials()
+    
+    // 로그인 및 초기화
     setStatus('로그인 중...')
-    const loginResult = await login()
+    console.log('🔐 모니터링 시작 - 로그인 시도:', { username: credentials.username })
     
-    if (!loginResult || !isLoggedIn) {
-      setStatus('❌ 로그인 실패')
-      return
+    try {
+      const result = await window.electronAPI.bmw.initialize(credentials)
+      
+      if (!result.success) {
+        setStatus(`❌ 로그인 실패: ${result.message || '알 수 없는 오류'}`)
+        return
+      }
+      
+      setStatus('✅ 로그인 성공!')
+      
+      // 모니터링 시작 시에는 프로그램 목록 업데이트 불필요
+      // 이미 선택된 프로그램으로 예약 확인만 진행
+      
+      // 즉시 한 번 확인
+      const programNames = selectedPrograms.join(', ')
+      setStatus(`${programNames} 예약 확인 중...`)
+      await checkReservation()
+      
+      // 주기적 확인 시작
+      const id = setInterval(() => {
+        checkReservation()
+      }, checkInterval * 1000)
+      
+      setIntervalId(id)
+      setIsRunning(true)
+      setStatus(`🔄 ${programNames} 모니터링 중... (${checkInterval}초마다 확인)`)
+      
+    } catch (error) {
+      setStatus(`❌ 오류: ${error}`)
     }
-    
-    // 즉시 한 번 확인
-    const programNames = selectedPrograms.join(', ')
-    setStatus(`${programNames} 예약 확인 중...`)
-    await checkReservation()
-    
-    // 주기적 확인 시작
-    const id = setInterval(() => {
-      checkReservation()
-    }, checkInterval * 1000)
-    
-    setIntervalId(id)
-    setIsRunning(true)
-    setStatus(`🔄 ${programNames} 모니터링 중... (${checkInterval}초마다 확인)`)
   }
 
   const stopMonitoring = () => {
@@ -138,32 +159,34 @@ export default function BMWReservationPanel() {
     setStatus('⏹️ 모니터링 중지됨')
   }
 
-  // 프로그램 리스트 가져오기
+  // 프로그램 리스트 가져오기 (로그인 불필요)
   const fetchPrograms = async () => {
     setIsLoadingPrograms(true)
     setStatus('🔍 BMW 프로그램 리스트 가져오는 중...')
     
-    // 기존 리스트 삭제
-    setPrograms([])
-    setProgramsLastUpdated(null)
-    localStorage.removeItem('bmw-programs')
-    
     try {
-      const result = await window.electronAPI.bmw.fetchPrograms()
+      // 로그인 없이 바로 프로그램 페이지에서 파싱
+      const result = await window.electronAPI.bmw.fetchProgramsOnly()
       
-      if (result.success && result.programs.length > 0) {
+      console.log('프로그램 가져오기 결과:', result)
+      console.log('프로그램 개수:', result.programs?.length)
+      console.log('프로그램 목록:', result.programs)
+      
+      if (result.success && result.programs && result.programs.length > 0) {
         setPrograms(result.programs)
-        setProgramsLastUpdated(result.timestamp)
+        setProgramsLastUpdated(new Date().toISOString())
         
         // 로컬 스토리지에 저장
         localStorage.setItem('bmw-programs', JSON.stringify({
           programs: result.programs,
-          lastUpdated: result.timestamp
+          lastUpdated: new Date().toISOString()
         }))
         
         setStatus(`✅ ${result.programs.length}개 프로그램 로드 완료`)
+        console.log('프로그램이 state에 설정됨:', result.programs.length, '개')
       } else {
         setStatus('⚠️ 프로그램을 찾을 수 없습니다')
+        console.log('프로그램을 찾지 못함:', result)
       }
     } catch (error) {
       setStatus(`❌ 오류: ${error}`)
@@ -178,30 +201,44 @@ export default function BMWReservationPanel() {
       Notification.requestPermission()
     }
 
+    // 저장된 계정 정보 로드 (비밀번호 복호화)
+    const savedCredentials = localStorage.getItem('bmw-credentials')
+    if (savedCredentials) {
+      const encrypted = JSON.parse(savedCredentials)
+      setCredentials({
+        username: encrypted.username,
+        password: decryptPassword(encrypted.password)
+      })
+    }
+
     // 로컬 스토리지에서 프로그램 리스트 로드
     const savedPrograms = localStorage.getItem('bmw-programs')
     if (savedPrograms) {
       const data = JSON.parse(savedPrograms)
-      setPrograms(data.programs || [])
+      // 이전 형식(객체 배열)과 새 형식(문자열 배열) 모두 처리
+      const programList = data.programs || []
+      if (programList.length > 0 && typeof programList[0] === 'object') {
+        // 이전 형식이면 name 필드만 추출
+        setPrograms(programList.map((p: any) => p.name || p))
+      } else {
+        setPrograms(programList)
+      }
       setProgramsLastUpdated(data.lastUpdated)
       
       // 1주일 이상 지났으면 자동 업데이트
       const lastUpdate = new Date(data.lastUpdated)
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-      if (lastUpdate < weekAgo) {
+      if (lastUpdate < weekAgo && credentials.username && credentials.password) {
         fetchPrograms()
       }
-    } else {
-      // 프로그램 리스트가 없으면 바로 가져오기
-      fetchPrograms()
     }
 
-    // 프로그램 업데이트 리스너
-    window.electronAPI.bmw.onProgramsUpdated((data) => {
-      setPrograms(data.programs)
-      setProgramsLastUpdated(data.lastUpdated)
-      localStorage.setItem('bmw-programs', JSON.stringify(data))
-    })
+    // 프로그램 업데이트 리스너 (필요시 추가)
+    // window.electronAPI.bmw.onProgramsUpdated?.((data) => {
+    //   setPrograms(data.programs)
+    //   setProgramsLastUpdated(data.lastUpdated)
+    //   localStorage.setItem('bmw-programs', JSON.stringify(data))
+    // })
 
     return () => {
       if (intervalId) {
@@ -241,49 +278,26 @@ export default function BMWReservationPanel() {
           </div>
         )}
         
-        <div className="max-h-48 overflow-y-auto border rounded p-2 space-y-3">
+        <div className="max-h-48 overflow-y-auto border rounded p-2 space-y-1">
+          {console.log('렌더링 시점 programs:', programs, 'length:', programs.length)}
           {programs.length > 0 ? (
-            (() => {
-              // 카테고리별로 그룹핑
-              const grouped: { [key: string]: typeof programs } = {}
-              programs.forEach(program => {
-                const cat = program.category || '기타'
-                if (!grouped[cat]) grouped[cat] = []
-                grouped[cat].push(program)
-              })
-              
-              const categoryOrder = ['Experience', 'Training', 'Owner', '기타']
-              
-              return categoryOrder.map(category => {
-                const categoryPrograms = grouped[category]
-                if (!categoryPrograms || categoryPrograms.length === 0) return null
-                
-                return (
-                  <div key={category}>
-                    <div className="text-xs font-semibold text-gray-600 mb-1">{category}</div>
-                    <div className="space-y-1 ml-2">
-                      {categoryPrograms.map((program, idx) => (
-                        <label key={`${category}-${idx}`} className="flex items-center gap-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={selectedPrograms.includes(program.name)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedPrograms([...selectedPrograms, program.name])
-                              } else {
-                                setSelectedPrograms(selectedPrograms.filter(p => p !== program.name))
-                              }
-                            }}
-                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                          />
-                          <span className="text-sm">{program.name}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )
-              }).filter(Boolean)
-            })()
+            programs.map((program, idx) => (
+              <label key={idx} className="flex items-center gap-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedPrograms.includes(program)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedPrograms([...selectedPrograms, program])
+                    } else {
+                      setSelectedPrograms(selectedPrograms.filter(p => p !== program))
+                    }
+                  }}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm">{program}</span>
+              </label>
+            ))
           ) : (
             <div className="text-sm text-gray-500">
               프로그램 목록을 불러오는 중...
@@ -326,18 +340,12 @@ export default function BMWReservationPanel() {
             className="flex-1 px-3 py-2 text-sm border rounded focus:outline-none focus:border-blue-400"
           />
         </div>
-        {!isLoggedIn ? (
-          <button
-            onClick={login}
-            className="w-full px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
-          >
-            로그인
-          </button>
-        ) : (
-          <div className="text-sm text-green-600 text-center">
-            ✅ 로그인 완료
-          </div>
-        )}
+        <button
+          onClick={saveCredentials}
+          className="w-full px-3 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 text-sm"
+        >
+          계정 정보 저장
+        </button>
       </div>
 
       {/* 알림 설정 */}

@@ -10,6 +10,7 @@ declare global {
         goBack: (id?: string) => Promise<boolean>
         goForward: (id?: string) => Promise<boolean>
         reload: (id?: string) => Promise<boolean>
+        toggleDevTools: (id?: string) => Promise<boolean>
         onUrlChanged: (callback: (data: { id: string; url: string }) => void) => void
         onTitleChanged: (callback: (data: { id: string; title: string }) => void) => void
         onLoadingState: (callback: (data: { id: string; loading: boolean }) => void) => void

@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     goBack: (id) => ipcRenderer.invoke('browser:go-back', id),
     goForward: (id) => ipcRenderer.invoke('browser:go-forward', id),
     reload: (id) => ipcRenderer.invoke('browser:reload', id),
+    toggleDevTools: (id) => ipcRenderer.invoke('browser:toggleDevTools', id),
     
     onUrlChanged: (callback) => {
       ipcRenderer.on('browser:url-changed', (event, data) => callback(data));
@@ -24,10 +25,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   
   bmw: {
+    // 새로운 API
+    initialize: (credentials) => ipcRenderer.invoke('bmw:initialize', credentials),
+    monitor: (params) => ipcRenderer.invoke('bmw:monitor', params),
+    navigate: (params) => ipcRenderer.invoke('bmw:navigate', params),
+    fetchProgramsOnly: () => ipcRenderer.invoke('bmw:fetch-programs-only'),
+    
+    // 기존 API (호환성 유지)
     analyzeSite: () => ipcRenderer.invoke('bmw:analyze-site'),
     autoLogin: (credentials) => ipcRenderer.invoke('bmw:auto-login', credentials),
     checkReservation: (programs) => ipcRenderer.invoke('bmw:check-reservation', programs),
     fetchPrograms: () => ipcRenderer.invoke('bmw:fetch-programs'),
+    
+    // 이벤트 리스너
     onAnalysisProgress: (callback) => {
       ipcRenderer.on('bmw:analysis-progress', (event, data) => callback(data));
     },

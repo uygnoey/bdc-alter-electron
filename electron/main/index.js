@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import SolveCaptcha from './solvecaptcha-wrapper.js';
 import dotenv from 'dotenv';
 import { fetchBMWPrograms } from './bmw-programs-parser.js';
+import './browser-automation.js'; // 새로운 자동화 모듈 import
 
 // .env 파일 로드
 dotenv.config();
@@ -17,6 +18,10 @@ const __dirname = path.dirname(__filename);
 let mainWindow;
 let browserViews = new Map();
 let activeBrowserViewId = null;
+
+// global 변수 설정 (browser-automation.js에서 사용)
+global.browserViews = browserViews;
+global.activeBrowserViewId = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -39,56 +44,7 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
   }
   
-  // 초기 BMW 사이트 탭 자동 생성
-  mainWindow.webContents.once('did-finish-load', () => {
-    setTimeout(() => {
-      // BMW 드라이빙 센터를 기본 탭으로 열기
-      const id = Date.now().toString();
-      const view = new BrowserView({
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true,
-          partition: 'persist:bmw'
-        }
-      });
-
-      mainWindow.setBrowserView(view);
-      
-      const bounds = mainWindow.getContentBounds();
-      view.setBounds({ 
-        x: Math.floor(bounds.width / 2), 
-        y: 40,
-        width: Math.floor(bounds.width / 2), 
-        height: bounds.height - 40
-      });
-      
-      view.setAutoResize({ width: true, height: true });
-      view.webContents.loadURL('https://driving-center.bmw.co.kr');
-      
-      browserViews.set(id, view);
-      activeBrowserViewId = id;
-
-      // 이벤트 리스너 등록
-      view.webContents.on('did-navigate', (event, url) => {
-        mainWindow.webContents.send('browser:url-changed', { id, url });
-      });
-
-      view.webContents.on('page-title-updated', (event, title) => {
-        mainWindow.webContents.send('browser:title-changed', { id, title });
-      });
-
-      view.webContents.on('did-start-loading', () => {
-        mainWindow.webContents.send('browser:loading-state', { id, loading: true });
-      });
-
-      view.webContents.on('did-stop-loading', () => {
-        mainWindow.webContents.send('browser:loading-state', { id, loading: false });
-      });
-      
-      // React 컴포넌트에 초기 탭 알림
-      mainWindow.webContents.send('browser:tab-created', { id, url: 'https://driving-center.bmw.co.kr' });
-    }, 1000);
-  });
+  // 초기에는 아무것도 띄우지 않음 - 모니터링 시작할 때 띄움
 
   mainWindow.on('closed', () => {
     browserViews.forEach(view => {
@@ -139,6 +95,11 @@ ipcMain.handle('browser:create-tab', async (event, url) => {
   
   browserViews.set(id, view);
   activeBrowserViewId = id;
+  
+  // global 변수 업데이트
+  global.browserViews = browserViews;
+  global.activeBrowserViewId = id;
+  global.activeBrowserView = view;
 
   view.webContents.on('did-navigate', (event, url) => {
     mainWindow.webContents.send('browser:url-changed', { id, url });
@@ -176,6 +137,11 @@ ipcMain.handle('browser:switch-tab', async (event, id) => {
   });
 
   activeBrowserViewId = id;
+  
+  // global 변수 업데이트
+  global.activeBrowserViewId = id;
+  global.activeBrowserView = browserViews.get(id);
+  
   return true;
 });
 
@@ -782,36 +748,75 @@ ipcMain.handle('bmw:auto-login', async (event, { username, password }) => {
     
     // BMW OAuth 페이지가 아니면 먼저 로그인 페이지로 이동
     if (!currentUrl.includes('customer.bmwgroup.com')) {
+      console.log('OAuth 페이지가 아니므로 로그인 버튼 찾기 시도...');
+      
+      // Vue.js 렌더링 대기
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
       const loginButtonClicked = await view.webContents.executeJavaScript(`
         (function() {
-          // 로그인 버튼 찾기
-          const buttons = Array.from(document.querySelectorAll('a, button'));
-          let loginBtn = null;
+          // 페이지 구조 디버깅
+          console.log('=== BMW 페이지 분석 ===');
+          console.log('URL:', window.location.href);
+          console.log('Title:', document.title);
           
-          for (let btn of buttons) {
-            const text = (btn.textContent || '').toLowerCase();
-            const href = btn.href || '';
-            
-            if (text.includes('로그인') || text.includes('login') || 
-                text.includes('sign in') || href.includes('login')) {
-              loginBtn = btn;
-              break;
+          // 모든 버튼과 링크 출력
+          const allButtons = document.querySelectorAll('button');
+          const allLinks = document.querySelectorAll('a');
+          
+          console.log('버튼 개수:', allButtons.length);
+          console.log('링크 개수:', allLinks.length);
+          
+          // 텍스트가 있는 모든 버튼 확인
+          for (let btn of allButtons) {
+            const text = btn.textContent?.trim();
+            if (text) {
+              console.log('버튼 텍스트:', text);
             }
           }
           
-          if (loginBtn) {
-            console.log('Login button found:', loginBtn);
-            loginBtn.click();
-            return true;
+          // 텍스트가 있는 모든 링크 확인
+          for (let link of allLinks) {
+            const text = link.textContent?.trim();
+            if (text && text.length < 20) { // 짧은 텍스트만
+              console.log('링크 텍스트:', text, 'href:', link.href);
+            }
           }
           
+          // 실제 로그인 버튼 찾기
+          for (let elem of [...allButtons, ...allLinks]) {
+            const text = (elem.textContent || '').trim();
+            // BMW 사이트는 '로그인' 텍스트 사용
+            if (text === '로그인' || text === 'Login' || text === 'MY BMW') {
+              console.log('>>> 로그인 버튼 클릭:', text);
+              elem.click();
+              return true;
+            }
+          }
+          
+          console.log('로그인 버튼을 찾을 수 없음');
           return false;
         })()
       `);
       
       if (loginButtonClicked) {
+        console.log('로그인 버튼 클릭됨, OAuth 페이지 이동 대기...');
         // OAuth 페이지로 리다이렉션 대기
         await new Promise(resolve => setTimeout(resolve, 4000));
+        
+        // URL 확인
+        const newUrl = view.webContents.getURL();
+        if (!newUrl.includes('customer.bmwgroup.com')) {
+          console.log('OAuth 페이지로 이동 실패, 직접 이동 시도...');
+          // 직접 OAuth URL로 이동
+          await view.webContents.loadURL('https://customer.bmwgroup.com/oneid/en-KR/login?client=bdc_2024&brand=bmw&country=KR&language=en&redirect_uri=https%3A%2F%2Fdriving-center.bmw.co.kr%2Fsso%2Flogin&response_type=code&scope=authenticate_user&state=bdc');
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      } else {
+        console.log('로그인 버튼을 찾을 수 없어 OAuth 페이지로 직접 이동...');
+        // 로그인 버튼을 못 찾으면 직접 OAuth URL로 이동
+        await view.webContents.loadURL('https://customer.bmwgroup.com/oneid/en-KR/login?client=bdc_2024&brand=bmw&country=KR&language=en&redirect_uri=https%3A%2F%2Fdriving-center.bmw.co.kr%2Fsso%2Flogin&response_type=code&scope=authenticate_user&state=bdc');
+        await new Promise(resolve => setTimeout(resolve, 3000));
       }
     }
 
@@ -1073,62 +1078,9 @@ ipcMain.handle('bmw:auto-login', async (event, { username, password }) => {
               console.log('로그인 버튼 발견:', loginBtn.textContent || loginBtn.value);
               loginBtn.click();
               
-              // 로그인 버튼 클릭 후 페이지 변화 대기
-              await new Promise(r => setTimeout(r, 3000));
-              
-              // hCaptcha가 나타났는지 확인
-              const hcaptchaAfterLogin = document.querySelector('iframe[src*="hcaptcha"], iframe[title*="hCaptcha"], .h-captcha, [data-hcaptcha-widget-id]');
-              
-              if (hcaptchaAfterLogin) {
-                console.log('로그인 버튼 클릭 후 hCaptcha 나타남');
-                
-                // hCaptcha가 해결되었는지 확인
-                const responseToken = document.querySelector('[name="h-captcha-response"]');
-                if (responseToken && responseToken.value) {
-                  console.log('hCaptcha 이미 해결됨');
-                  return { success: true, step: 'login_complete' };
-                }
-                
-                // hCaptcha sitekey 찾기
-                let sitekey = null;
-                const hcaptchaDiv = document.querySelector('.h-captcha, [data-sitekey]');
-                if (hcaptchaDiv) {
-                  sitekey = hcaptchaDiv.getAttribute('data-sitekey');
-                }
-                
-                // iframe에서 sitekey 추출
-                if (!sitekey) {
-                  const iframe = document.querySelector('iframe[src*="hcaptcha"]');
-                  if (iframe && iframe.src) {
-                    const match = iframe.src.match(/sitekey=([^&]+)/);
-                    if (match) {
-                      sitekey = match[1];
-                    }
-                  }
-                }
-                
-                return { 
-                  captcha: true,
-                  step: 'captcha_required',
-                  sitekey: sitekey,
-                  pageUrl: window.location.href
-                };
-              }
-              
-              // 로그인 성공 여부 확인 (URL 변경 또는 페이지 내용 변경)
-              const currentUrl = window.location.href;
-              if (!currentUrl.includes('login') && !currentUrl.includes('oneid')) {
-                console.log('로그인 성공 - 메인 페이지로 이동됨');
-                return { success: true, step: 'login_complete' };
-              }
-              
-              // 비밀번호 필드가 여전히 있으면 로그인 실패
-              const stillHasPassword = document.querySelector('input[type="password"]');
-              if (stillHasPassword) {
-                return { error: '로그인 실패 - 비밀번호를 확인해주세요', step: 'login_failed' };
-              }
-              
-              return { success: true, step: 'login_complete' };
+              // 로그인 버튼 클릭 후 처리 중 상태 반환
+              console.log('로그인 버튼 클릭 완료');
+              return { success: false, step: 'login_processing' };
             }
             
             // 버튼이 없으면 Enter 키에 의존
@@ -1164,6 +1116,57 @@ ipcMain.handle('bmw:auto-login', async (event, { username, password }) => {
       })()
     `);
 
+    // 로그인 처리 중인 경우 URL 모니터링으로 성공 판단
+    if (passwordResult.step === 'login_processing') {
+      console.log('로그인 처리 중... URL 변경 모니터링');
+      
+      // 최대 10초간 URL 확인
+      for (let i = 0; i < 10; i++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const currentUrl = view.webContents.getURL();
+        console.log(`[${i+1}초] 현재 URL:`, currentUrl);
+        
+        // driving-center.bmw.co.kr로 돌아왔으면 로그인 성공
+        if (currentUrl.includes('driving-center.bmw.co.kr') && 
+            !currentUrl.includes('customer.bmwgroup.com') &&
+            !currentUrl.includes('oneid.bmw.co.kr')) {
+          console.log('✅ 로그인 성공!');
+          return { success: true, message: '로그인 성공', url: currentUrl };
+        }
+        
+        // 3초 이후부터 오류 체크
+        if (i >= 2) {
+          if (currentUrl.includes('customer.bmwgroup.com') || currentUrl.includes('oneid.bmw.co.kr')) {
+            const pageCheck = await view.webContents.executeJavaScript(`
+              ({
+                hasPasswordField: document.querySelector('input[type="password"]') !== null,
+                hasCaptcha: document.querySelector('iframe[src*="hcaptcha"], .h-captcha') !== null
+              })
+            `);
+            
+            if (pageCheck.hasCaptcha) {
+              console.log('🤖 hCaptcha 인증 필요');
+              return { success: false, error: 'hCaptcha 인증이 필요합니다', captcha: true, url: currentUrl };
+            }
+            
+            if (pageCheck.hasPasswordField) {
+              // 비밀번호 필드가 있고 3초 이상 지났으면 로그인 실패 가능성
+              if (i >= 4) {
+                console.log('❌ 로그인 실패 - 비밀번호 오류');
+                return { success: false, error: '비밀번호를 확인해주세요', url: currentUrl };
+              }
+            }
+          }
+        }
+      }
+      
+      // 10초 후에도 완료 안됨
+      const finalUrl = view.webContents.getURL();
+      console.log('⏱️ 로그인 시간 초과, 최종 URL:', finalUrl);
+      return { success: false, error: '로그인 시간 초과', url: finalUrl };
+    }
+    
     // 비밀번호 필드를 못 찾았으면 재시도
     if (passwordResult.needsRetry) {
       console.log('비밀번호 필드 찾기 재시도...');
