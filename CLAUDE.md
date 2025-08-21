@@ -99,3 +99,63 @@ SOLVECAPTCHA_API_KEY=your_api_key
 ## GitHub Repository
 - URL: https://github.com/uygnoey/bdc-alter-electron
 - Main branch: main
+
+## Recent Major Refactoring (2025-08-21) / 최근 주요 리팩토링
+
+### Changed Approach / 접근 방식 변경
+- **Direct Schedule Page Access**: Now starts from `https://driving-center.bmw.co.kr/orders/programs/schedules/view`
+- **스케줄 페이지 직접 접근**: 이제 스케줄 페이지부터 시작
+
+### Program Data Structure / 프로그램 데이터 구조
+- **Before**: `{ id: string, name: string, category: string }[]`
+- **After**: `string[]` (simple array of program names)
+- **변경**: 객체 배열에서 단순 문자열 배열로
+
+### Key Improvements / 주요 개선사항
+1. **Program Parsing**: Direct from `useAmount/view` without login
+2. **Junior Campus Filtering**: Excludes `chargeCont2` DOM area
+3. **Rowspan Handling**: Properly handles multi-row programs like Taxi
+4. **No Parsing on Monitor Start**: Only login and check reservations
+5. **ERR_ABORTED**: Properly handled during redirects
+
+### Current Flow / 현재 플로우
+1. User clicks "프로그램 가져오기" → Fetches programs from useAmount/view
+2. User selects programs and starts monitoring
+3. System navigates to schedule page → Auto-login if needed → Check reservations
+4. No program parsing during monitoring initialization
+
+## TODO - Next Implementation / 다음 구현 사항
+
+### Reservation Availability Parsing / 예약 가능 여부 파싱
+1. **Parse Available Dates**: Extract available dates for selected programs from schedule page
+   - 선택한 프로그램의 예약 가능한 날짜 파싱
+   
+2. **Parse Time Slots**: For each available date, parse:
+   - Open time slots (열린 시간대)
+   - Remaining seats (남은 자리 수)
+   - Full booking status (만석 여부)
+   
+3. **Data Structure Needed**:
+   ```javascript
+   {
+     programName: string,
+     availableDates: [
+       {
+         date: string,
+         timeSlots: [
+           {
+             time: string,
+             remainingSeats: number,
+             isAvailable: boolean
+           }
+         ]
+       }
+     ]
+   }
+   ```
+
+4. **UI Updates Required**:
+   - Display available dates and times in real-time
+   - Show remaining seats for each slot
+   - Alert user when seats become available
+   - Auto-refresh to check for new availability
