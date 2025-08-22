@@ -10,33 +10,6 @@ dotenv.config();
  * 스케줄 페이지 직접 접근 방식으로 새로 구현
  */
 
-// 로그인 상태 확인 및 처리
-async function ensureLoggedIn(view, username, password) {
-  try {
-    // 현재 URL 확인
-    const currentURL = view.webContents.getURL();
-    console.log('현재 페이지:', currentURL);
-    
-    // OAuth 로그인 페이지로 리다이렉트 되었는지 확인
-    if (currentURL.includes('oneid.bmw.co.kr') || currentURL.includes('customer.bmwgroup.com')) {
-      console.log('로그인이 필요합니다. 로그인 프로세스 시작...');
-      
-      // 로그인 처리
-      const loginResult = await performLogin(view, username, password);
-      if (!loginResult.success) {
-        return loginResult;
-      }
-    } else if (currentURL.includes('driving-center.bmw.co.kr')) {
-      console.log('이미 로그인되어 있습니다.');
-    }
-    
-    // 이미 로그인되어 있거나 로그인 완료
-    return { success: true, message: '로그인 확인 완료' };
-  } catch (error) {
-    console.error('로그인 확인 중 오류:', error);
-    return { success: false, message: error.message };
-  }
-}
 
 // OAuth 로그인 처리
 async function performLogin(view, username, password) {
@@ -508,88 +481,84 @@ ipcMain.handle('bmw:initialize', async (event, { username, password }) => {
   }
   
   try {
-    // 스케줄 페이지로 이동 시도
-    console.log('스케줄 페이지로 이동 시도...');
+    // 스케줄 페이지로 직접 이동 시도
+    console.log('🚀 BMW 드라이빙 센터 초기화 시작...');
     
-    // 페이지가 로드되거나 리다이렉트될 때까지 대기
-    const navigationResult = await new Promise((resolve) => {
-      let resolved = false;
-      let hasError = false;
-      
-      // did-navigate 이벤트 리스너 (리다이렉트 포함)
-      const handleNavigate = (event, url) => {
-        if (!resolved) {
-          console.log('페이지 이동 완료:', url);
-          resolved = true;
-          view.webContents.off('did-navigate', handleNavigate);
-          view.webContents.off('did-fail-load', handleFailLoad);
-          resolve({ success: true, url: url });
-        }
-      };
-      
-      // did-fail-load 이벤트 리스너 (ERR_ABORTED 무시)
-      const handleFailLoad = (event, errorCode, errorDescription, validatedURL) => {
-        if (errorCode === -3) { // ERR_ABORTED
-          console.log('리다이렉트 감지, 대기 중...');
-          // ERR_ABORTED는 무시하고 계속 대기
-          hasError = false; // 에러로 처리하지 않음
-        } else if (!resolved) {
-          console.error('페이지 로드 실패:', errorDescription);
-          hasError = true;
-          resolved = true;
-          view.webContents.off('did-navigate', handleNavigate);
-          view.webContents.off('did-fail-load', handleFailLoad);
-          resolve({ success: false, error: errorDescription });
-        }
-      };
-      
-      view.webContents.on('did-navigate', handleNavigate);
-      view.webContents.on('did-fail-load', handleFailLoad);
-      
-      // 페이지 네비게이션 시작 (catch로 에러 무시)
-      view.webContents.loadURL('https://driving-center.bmw.co.kr/orders/programs/schedules/view')
-        .catch(err => {
-          // 모든 에러 무시 (리다이렉트로 인한 ERR_ABORTED 포함)
-          console.log('네비게이션 시작, 리다이렉트 대기 중...');
-        });
-      
-      // 타임아웃 설정 (5초)
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          view.webContents.off('did-navigate', handleNavigate);
-          view.webContents.off('did-fail-load', handleFailLoad);
-          const currentUrl = view.webContents.getURL();
-          resolve({ success: true, url: currentUrl });
-        }
-      }, 5000);
-    });
+    // 스케줄 페이지로 바로 이동 (로그인 필요시 자동 리다이렉트됨)
+    await view.webContents.loadURL('https://driving-center.bmw.co.kr/orders/programs/schedules/view')
+      .catch(err => {
+        // ERR_ABORTED 등의 리다이렉트 오류는 무시
+        console.log('페이지 이동 중... (리다이렉트 가능)');
+      });
     
-    // 네비게이션 실패한 경우 (ERR_ABORTED 제외)
-    if (!navigationResult.success && navigationResult.error && !navigationResult.error.includes('ERR_ABORTED')) {
-      return { success: false, message: navigationResult.error };
+    // 페이지 로드 대기
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    // 현재 URL 확인
+    let currentUrl = view.webContents.getURL();
+    console.log('현재 페이지:', currentUrl);
+    
+    // 로그인 페이지로 리다이렉트 되었는지 확인
+    if (currentUrl.includes('oneid.bmw.co.kr') || currentUrl.includes('customer.bmwgroup.com')) {
+      console.log('🔐 로그인이 필요합니다. 자동 로그인 시작...');
+      
+      // 로그인 처리
+      const loginResult = await performLogin(view, username, password);
+      if (!loginResult.success) {
+        console.error('❌ 로그인 실패:', loginResult.message);
+        return loginResult;
+      }
+      
+      console.log('✅ 로그인 성공!');
+      
+      // 로그인 성공 후 대기 (리다이렉트 처리)
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // 현재 URL 다시 확인
+      currentUrl = view.webContents.getURL();
+      console.log('로그인 후 페이지:', currentUrl);
+      
+      // 메인 페이지나 다른 페이지로 갔다면 스케줄 페이지로 강제 이동
+      if (!currentUrl.includes('schedules/view')) {
+        console.log('📅 스케줄 페이지로 이동 중...');
+        await view.webContents.loadURL('https://driving-center.bmw.co.kr/orders/programs/schedules/view')
+          .catch(err => {
+            console.log('스케줄 페이지 이동 중...');
+          });
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    } else if (currentUrl.includes('driving-center.bmw.co.kr')) {
+      console.log('✅ 이미 로그인되어 있습니다.');
+      
+      // 스케줄 페이지가 아니면 이동
+      if (!currentUrl.includes('schedules/view')) {
+        console.log('📅 스케줄 페이지로 이동 중...');
+        await view.webContents.loadURL('https://driving-center.bmw.co.kr/orders/programs/schedules/view')
+          .catch(err => {
+            console.log('스케줄 페이지 이동 중...');
+          });
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
     }
     
-    // 추가 대기 (페이지 완전 로드)
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // 로그인 확인 및 처리
-    const loginResult = await ensureLoggedIn(view, username, password);
-    if (!loginResult.success) {
-      return loginResult;
+    // 최종 확인
+    currentUrl = view.webContents.getURL();
+    if (currentUrl.includes('schedules/view')) {
+      console.log('✅ 스케줄 페이지 도착!');
+      return {
+        success: true,
+        message: '초기화 완료'
+      };
+    } else {
+      console.log('⚠️ 스케줄 페이지 이동 실패. 현재:', currentUrl);
+      return {
+        success: false,
+        message: '스케줄 페이지로 이동할 수 없습니다'
+      };
     }
-    
-    // 로그인 성공 후 스케줄 페이지로 이동
-    console.log('로그인 성공, 스케줄 페이지로 이동...');
-    await view.webContents.loadURL('https://driving-center.bmw.co.kr/orders/programs/schedules/view');
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    return {
-      success: true,
-      message: '로그인 및 초기화 완료'
-    };
     
   } catch (error) {
+    console.error('❌ 초기화 중 오류:', error);
     return { success: false, message: error.message };
   }
 });
@@ -837,4 +806,4 @@ ipcMain.handle('bmw:fetch-programs-only', async (event) => {
   }
 });
 
-export { ensureLoggedIn, parsePrograms, checkAvailability };
+export { parsePrograms, checkAvailability };

@@ -291,6 +291,20 @@ ipcMain.handle('browser:reload', async (event, id) => {
   return false;
 });
 
+// 개발자 도구 토글
+ipcMain.handle('browser:toggleDevTools', async (event, id) => {
+  const view = browserViews.get(id || activeBrowserViewId);
+  if (view) {
+    if (view.webContents.isDevToolsOpened()) {
+      view.webContents.closeDevTools();
+    } else {
+      view.webContents.openDevTools();
+    }
+    return true;
+  }
+  return false;
+});
+
 
 app.whenReady().then(() => {
   createWindow();
@@ -894,21 +908,27 @@ ipcMain.handle('bmw:auto-login', async (event, { username, password }) => {
           
           console.log('보이는 input 개수:', visibleInputs.length);
           
-          // 비밀번호 필드가 있는지 먼저 확인
-          const passwordField = visibleInputs.find(input => input.type === 'password');
-          if (passwordField) {
-            console.log('이미 비밀번호 페이지입니다');
-            return { success: true, step: 'already_at_password' };
-          }
-          
-          // 이메일/텍스트 필드 찾기
+          // 이메일/텍스트 필드 먼저 찾기 (1단계 우선)
           let emailField = visibleInputs.find(input => 
             input.type === 'email' || 
-            input.type === 'text' ||
+            (input.type === 'text' && input.type !== 'password') ||
             input.name?.toLowerCase().includes('email') ||
             input.name?.toLowerCase().includes('user') ||
             input.placeholder?.toLowerCase().includes('email')
           );
+          
+          // 비밀번호 필드 확인
+          const passwordField = visibleInputs.find(input => input.type === 'password');
+          
+          // 이메일 필드가 있고 값이 비어있으면 -> 1단계 (이메일 입력)
+          if (emailField && !emailField.value) {
+            console.log('1단계: 이메일 입력이 필요합니다');
+            // 이메일 입력 진행
+          } else if (passwordField && !emailField) {
+            // 비밀번호 필드만 있으면 -> 2단계로 판단
+            console.log('2단계: 비밀번호 페이지입니다');
+            return { success: true, step: 'already_at_password' };
+          }
           
           // 첫 번째 텍스트 필드를 이메일 필드로 간주
           if (!emailField && visibleInputs.length > 0) {
@@ -1131,8 +1151,13 @@ ipcMain.handle('bmw:auto-login', async (event, { username, password }) => {
         if (currentUrl.includes('driving-center.bmw.co.kr') && 
             !currentUrl.includes('customer.bmwgroup.com') &&
             !currentUrl.includes('oneid.bmw.co.kr')) {
-          console.log('✅ 로그인 성공!');
-          return { success: true, message: '로그인 성공', url: currentUrl };
+          console.log('✅ 로그인 성공! 스케줄 페이지로 이동 중...');
+          
+          // 로그인 성공 후 스케줄 페이지로 리다이렉트
+          await view.webContents.loadURL('https://driving-center.bmw.co.kr/orders/programs/schedules/view');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          return { success: true, message: '로그인 성공 및 스케줄 페이지 이동 완료', url: view.webContents.getURL() };
         }
         
         // 3초 이후부터 오류 체크
