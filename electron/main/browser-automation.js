@@ -467,7 +467,50 @@ async function checkAvailability(view, selectedPrograms) {
       
       // 이 달의 모든 날짜를 순회
       for (const dateInfo of availableDates) {
-      console.log(`\n📆 ${dateInfo.date}일 확인 중...`);
+      console.log(`\n📆 ${currentMonthInfo.month}의 ${dateInfo.date}일 확인 중...`);
+      
+      // 현재 캘린더가 올바른 월인지 확인
+      const currentCalendarMonth = await view.webContents.executeJavaScript(`
+        (function() {
+          const monthLabel = document.querySelector('#calendarLabel');
+          return monthLabel ? monthLabel.textContent.trim() : '';
+        })()
+      `);
+      
+      // 월이 다르면 올바른 월로 이동
+      if (currentCalendarMonth !== currentMonthInfo.month) {
+        console.log(`캘린더가 ${currentCalendarMonth}로 되어있음. ${currentMonthInfo.month}로 다시 이동...`);
+        
+        // 다음/이전 버튼으로 올바른 월로 이동
+        if (currentCalendarMonth < currentMonthInfo.month) {
+          // 다음 달로 이동 필요
+          await view.webContents.executeJavaScript(`
+            (function() {
+              const nextBtn = document.querySelector('#nextCalendar');
+              if (nextBtn) {
+                nextBtn.click();
+                return true;
+              }
+              return false;
+            })()
+          `);
+        } else {
+          // 이전 달로 이동 필요
+          await view.webContents.executeJavaScript(`
+            (function() {
+              const prevBtn = document.querySelector('#prevCalendar');
+              if (prevBtn) {
+                prevBtn.click();
+                return true;
+              }
+              return false;
+            })()
+          `);
+        }
+        
+        // 월 변경 대기
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
       
       // 날짜 클릭
       const dateClicked = await view.webContents.executeJavaScript(`
@@ -480,6 +523,7 @@ async function checkAvailability(view, selectedPrograms) {
             btn.click();
             return true;
           }
+          console.log('날짜 버튼을 찾을 수 없음:', '${dateInfo.date}');
           return false;
         })()
       `);
