@@ -552,85 +552,132 @@ async function checkAvailability(view, selectedPrograms) {
         console.log(`${dateInfo.date}일: ${programsForDate.length}개 프로그램 발견 - [${programNames}]`);
         
         // 모든 프로그램에 대해 차량 및 시간대 정보 파싱
+        // 먼저 프로그램을 선택하여 thirdDepthBox를 표시
+        const firstProgramSelected = await view.webContents.executeJavaScript(`
+          (function() {
+            // 첫 번째 프로그램 선택하여 thirdDepthBox 표시
+            const firstProgram = document.querySelector('#productList .swiper-slide:not(.swiper-slide-duplicate)');
+            if (firstProgram) {
+              const selectBtn = firstProgram.querySelector('a[onclick*="selectProduct"], button[onclick*="selectProduct"]');
+              if (selectBtn) {
+                console.log('첫 번째 프로그램 선택하여 thirdDepthBox 활성화');
+                selectBtn.click();
+                return true;
+              }
+            }
+            return false;
+          })()
+        `);
+        
+        if (firstProgramSelected) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        
+        // swiper 컨트롤을 사용하여 각 프로그램 순회
+        let programIndex = 0;
         for (const program of programsForDate) {
           console.log(`\n📌 프로그램 상세 정보 확인: ${program.name}`);
           
-          // 프로그램 선택 (selectProduct 함수 호출)
-          const clicked = await view.webContents.executeJavaScript(`
+          // 현재 보이는 프로그램 확인 및 전환
+          const switched = await view.webContents.executeJavaScript(`
             (function() {
-              // 현재 선택된 프로그램 확인
-              const currentSelected = document.querySelector('#productList .swiper-slide.on .tit');
-              if (currentSelected) {
-                console.log('현재 선택된 프로그램:', currentSelected.textContent.trim());
-              }
-              
-              // 프로그램 찾기
-              const slides = document.querySelectorAll('#productList .swiper-slide:not(.swiper-slide-duplicate)');
-              console.log('프로그램 슬라이드 수:', slides.length);
-              
-              for (const slide of slides) {
-                const titleEl = slide.querySelector('.tit');
-                if (titleEl && titleEl.textContent.trim() === '${program.name}') {
-                  console.log('프로그램 발견:', '${program.name}');
-                  
-                  // 이미 선택된 프로그램인지 확인
-                  const isAlreadySelected = slide.classList.contains('on') || slide.classList.contains('active');
-                  if (isAlreadySelected) {
-                    console.log('이미 선택된 프로그램이지만 다시 클릭하여 업데이트');
-                  }
-                  
-                  // selectProduct 함수를 호출하는 요소 찾기
-                  const selectButtons = slide.querySelectorAll('a[onclick*="selectProduct"], button[onclick*="selectProduct"], input[onclick*="selectProduct"]');
-                  console.log('selectProduct 버튼 수:', selectButtons.length);
-                  
-                  if (selectButtons.length > 0) {
-                    const onclick = selectButtons[0].getAttribute('onclick');
-                    console.log('onclick 속성:', onclick);
-                    
-                    // 프로그램 선택 버튼 클릭 (항상 클릭하여 thirdDepthBox 업데이트)
-                    console.log('프로그램 선택 버튼 클릭!');
-                    selectButtons[0].click();
-                    return true;
-                  }
-                  
-                  // 라디오 버튼이나 체크박스가 있는지 확인
-                  const radioOrCheckbox = slide.querySelector('input[type="radio"], input[type="checkbox"]');
-                  if (radioOrCheckbox) {
-                    console.log('라디오/체크박스 발견');
-                    // 체크 상태와 관계없이 클릭
-                    radioOrCheckbox.click();
-                    
-                    // selectProduct 함수를 직접 호출해야 할 수도 있음
-                    const onclickAttr = radioOrCheckbox.getAttribute('onclick');
-                    if (onclickAttr && onclickAttr.includes('selectProduct')) {
-                      console.log('selectProduct 함수 호출:', onclickAttr);
-                    }
-                    return true;
-                  }
-                  
-                  // 전체 슬라이드에 onclick이 있는지 확인
-                  const slideOnclick = slide.getAttribute('onclick');
-                  if (slideOnclick && slideOnclick.includes('selectProduct')) {
-                    console.log('슬라이드 자체에 selectProduct 있음, 클릭!');
-                    slide.click();
-                    return true;
-                  }
-                  
-                  console.log('selectProduct를 찾을 수 없어서 슬라이드 클릭 시도');
-                  slide.click();
+              // 현재 활성 프로그램 확인
+              const activeSlide = document.querySelector('#productList .swiper-slide-active');
+              if (activeSlide) {
+                const currentTitle = activeSlide.querySelector('.tit')?.textContent.trim();
+                console.log('현재 활성 프로그램:', currentTitle);
+                
+                if (currentTitle === '${program.name}') {
+                  console.log('이미 해당 프로그램이 활성화되어 있음');
                   return true;
                 }
               }
               
-              console.log('프로그램을 찾을 수 없음:', '${program.name}');
-              return false;
+              // 프로그램 찾기 위해 swiper 탐색
+              const allSlides = document.querySelectorAll('#productList .swiper-slide:not(.swiper-slide-duplicate)');
+              let targetIndex = -1;
+              
+              for (let i = 0; i < allSlides.length; i++) {
+                const titleEl = allSlides[i].querySelector('.tit');
+                if (titleEl && titleEl.textContent.trim() === '${program.name}') {
+                  targetIndex = i;
+                  console.log('목표 프로그램 인덱스:', targetIndex);
+                  break;
+                }
+              }
+              
+              if (targetIndex === -1) {
+                console.log('프로그램을 찾을 수 없음:', '${program.name}');
+                return false;
+              }
+              
+              // 현재 인덱스 확인
+              let currentIndex = 0;
+              for (let i = 0; i < allSlides.length; i++) {
+                if (allSlides[i].classList.contains('swiper-slide-active')) {
+                  currentIndex = i;
+                  break;
+                }
+              }
+              
+              console.log('현재 인덱스:', currentIndex, '목표 인덱스:', targetIndex);
+              
+              // 필요한 만큼 이전/다음 버튼 클릭
+              const diff = targetIndex - currentIndex;
+              
+              if (diff > 0) {
+                // 다음 버튼 클릭
+                const nextBtn = document.querySelector('.product-swiper-control-button.swiper-button-next');
+                if (nextBtn && !nextBtn.classList.contains('swiper-button-disabled')) {
+                  console.log(diff + '번 다음 버튼 클릭 필요');
+                  for (let i = 0; i < diff; i++) {
+                    nextBtn.click();
+                    // 각 클릭 사이에 약간의 딜레이
+                    setTimeout(() => {}, 300);
+                  }
+                  return true;
+                }
+              } else if (diff < 0) {
+                // 이전 버튼 클릭
+                const prevBtn = document.querySelector('.product-swiper-control-button.swiper-button-prev');
+                if (prevBtn && !prevBtn.classList.contains('swiper-button-disabled')) {
+                  console.log(Math.abs(diff) + '번 이전 버튼 클릭 필요');
+                  for (let i = 0; i < Math.abs(diff); i++) {
+                    prevBtn.click();
+                    // 각 클릭 사이에 약간의 딜레이
+                    setTimeout(() => {}, 300);
+                  }
+                  return true;
+                }
+              }
+              
+              // 이미 해당 위치에 있음
+              return true;
             })()
           `);
           
-          if (clicked) {
-            console.log(`✅ [${program.name}] 프로그램 선택 성공, thirdDepthBox 업데이트 대기 중...`);
+          if (switched) {
+            console.log(`✅ [${program.name}] 프로그램으로 전환 성공, thirdDepthBox 업데이트 대기 중...`);
             // thirdDepthBox 업데이트 대기 (프로그램 전환 시 시간이 필요함)
-            await new Promise(resolve => setTimeout(resolve, 2500));
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // 프로그램 선택하여 thirdDepthBox 업데이트
+            await view.webContents.executeJavaScript(`
+              (function() {
+                const activeSlide = document.querySelector('#productList .swiper-slide-active');
+                if (activeSlide) {
+                  const selectBtn = activeSlide.querySelector('a[onclick*="selectProduct"], button[onclick*="selectProduct"]');
+                  if (selectBtn) {
+                    console.log('활성 프로그램 선택 버튼 클릭');
+                    selectBtn.click();
+                    return true;
+                  }
+                }
+                return false;
+              })()
+            `);
+            
+            await new Promise(resolve => setTimeout(resolve, 1500));
             
             // 차량 및 시간대 정보 파싱
             const detailInfo = await view.webContents.executeJavaScript(`
@@ -826,8 +873,10 @@ async function checkAvailability(view, selectedPrograms) {
               console.log(`❌ [${program.name}] thirdDepthBox를 찾을 수 없음 - 상세 정보 파싱 실패`);
             }
           } else {
-            console.log(`❌ [${program.name}] 프로그램 선택 실패 - 프로그램을 찾을 수 없음`);
+            console.log(`❌ [${program.name}] 프로그램 전환 실패 - 프로그램을 찾을 수 없음`);
           }
+          
+          programIndex++;
         }
       } else {
         console.log(`${dateInfo.date}일: 프로그램 없음`);
