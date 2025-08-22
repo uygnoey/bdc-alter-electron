@@ -938,14 +938,61 @@ async function checkAvailability(view, selectedPrograms) {
                         console.log(`          ⚠️ 요청 인덱스(${vehicleInfo.requestedIndex})와 실제 인덱스(${vehicleInfo.actualIndex}) 불일치`);
                       }
                       
+                      // 현재 활성 차량을 실제로 클릭하여 선택 (시간대 업데이트 트리거)
+                      const carClicked = await view.webContents.executeJavaScript(`
+                        (function() {
+                          const activeCar = document.querySelector('#carList .swiper-slide-active:not(.swiper-slide-duplicate)');
+                          if (!activeCar) return false;
+                          
+                          // 차량 클릭 가능한 요소 찾기
+                          const clickableElement = activeCar.querySelector('a') || activeCar.querySelector('button') || activeCar;
+                          
+                          // 차량 선택 이벤트 트리거
+                          if (clickableElement) {
+                            // 직접 클릭
+                            clickableElement.click();
+                            
+                            // 또는 getCarDetail 함수가 있으면 사용
+                            const detailLink = activeCar.querySelector('a[onclick*="getCarDetail"]');
+                            if (detailLink) {
+                              const onclickAttr = detailLink.getAttribute('onclick');
+                              if (onclickAttr) {
+                                // getCarDetail('146') 형태에서 ID 추출
+                                const match = onclickAttr.match(/getCarDetail\\('(\\d+)'\\)/);
+                                if (match && match[1]) {
+                                  if (typeof getCarDetail === 'function') {
+                                    getCarDetail(match[1]);
+                                    return 'getCarDetail';
+                                  }
+                                }
+                              }
+                            }
+                            
+                            return 'clicked';
+                          }
+                          return false;
+                        })()
+                      `);
+                      
+                      console.log(`          차량 클릭 결과: ${carClicked}`);
+                      
                       // 차량 선택 후 시간대 업데이트 대기
-                      await new Promise(resolve => setTimeout(resolve, 1000));
+                      await new Promise(resolve => setTimeout(resolve, 2000));
                       
                       // 현재 차량의 시간대 정보 파싱
                       const timeSlots = await view.webContents.executeJavaScript(`
                         (function() {
                           const timeSlots = [];
+                          
+                          // orderTimeList가 표시되는지 확인
+                          const orderTimeList = document.querySelector('#orderTimeList');
+                          if (!orderTimeList || orderTimeList.style.display === 'none') {
+                            console.log('orderTimeList가 숨겨져 있음 - 차량 선택이 제대로 되지 않음');
+                            return [];
+                          }
+                          
                           const timeList = document.querySelectorAll('#orderTimeList a');
+                          console.log('시간대 슬롯 개수:', timeList.length);
                           
                           timeList.forEach(timeSlot => {
                             const timeText = timeSlot.querySelector('.time')?.textContent.trim();
