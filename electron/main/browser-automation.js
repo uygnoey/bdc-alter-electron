@@ -840,79 +840,129 @@ async function checkAvailability(view, selectedPrograms) {
                   
                   await new Promise(resolve => setTimeout(resolve, 800));
                   
-                  // 현재 브랜드/시리즈의 차량 및 시간대 정보 파싱
-                  const detailInfo = await view.webContents.executeJavaScript(`
+                  // 현재 시리즈의 모든 차량별 시간대 정보 파싱
+                  const seriesVehicleData = [];
+                  
+                  // 먼저 차량 개수 확인
+                  const vehicleCount = await view.webContents.executeJavaScript(`
                     (function() {
-                      const thirdDepthBox = document.querySelector('#thirdDepthBox');
-                      if (!thirdDepthBox || thirdDepthBox.style.display === 'none') {
-                        return null;
-                      }
-                      
-                      // 차량 정보 파싱
-                      const vehicles = [];
-                      const carList = thirdDepthBox.querySelectorAll('#carList .swiper-slide');
-                      
-                      carList.forEach(car => {
-                        // 중복 슬라이드 제외
-                        if (car.classList.contains('swiper-slide-duplicate')) return;
-                        
-                        const subTit = car.querySelector('.subTit')?.textContent.trim();
-                        const model = car.querySelector('.tit')?.textContent.trim();
-                        const priceText = car.querySelector('.infoIco .text')?.textContent.trim();
-                        
-                        if (model) {
-                          vehicles.push({
-                            brand: '${brand.name}',
-                            series: subTit || '${series.name}',
-                            model: model,
-                            price: priceText || ''
-                          });
-                        }
-                      });
-                      
-                      // 시간대 정보 파싱
-                      const timeSlots = [];
-                      const timeList = document.querySelectorAll('#orderTimeList a');
-                      
-                      timeList.forEach(timeSlot => {
-                        const timeText = timeSlot.querySelector('.time')?.textContent.trim();
-                        const seatText = timeSlot.querySelector('.seat')?.textContent.trim();
-                        const isDisabled = timeSlot.classList.contains('disabled');
-                        
-                        if (timeText) {
-                          let remainingSeats = 0;
-                          if (seatText && !seatText.includes('매진')) {
-                            const match = seatText.match(/(\\d+)석/);
-                            remainingSeats = match ? parseInt(match[1]) : 0;
-                          }
-                          
-                          timeSlots.push({
-                            time: timeText,
-                            remainingSeats: remainingSeats,
-                            available: !isDisabled && remainingSeats > 0,
-                            fullText: seatText || ''
-                          });
-                        }
-                      });
-                      
-                      return {
-                        brand: '${brand.name}',
-                        series: '${series.name}',
-                        vehicles: vehicles,
-                        timeSlots: timeSlots
-                      };
+                      const carList = document.querySelectorAll('#carList .swiper-slide:not(.swiper-slide-duplicate)');
+                      return carList.length;
                     })()
                   `);
                   
+                  console.log(`      🚙 ${vehicleCount}대 차량 발견`);
+                  
+                  // 각 차량별로 순회하면서 시간대 파싱
+                  for (let carIndex = 0; carIndex < vehicleCount; carIndex++) {
+                    // 차량 선택 (swiper navigation 또는 직접 클릭)
+                    const vehicleInfo = await view.webContents.executeJavaScript(`
+                      (function() {
+                        const thirdDepthBox = document.querySelector('#thirdDepthBox');
+                        if (!thirdDepthBox || thirdDepthBox.style.display === 'none') {
+                          return null;
+                        }
+                        
+                        // 현재 차량으로 이동
+                        const carSlides = document.querySelectorAll('#carList .swiper-slide:not(.swiper-slide-duplicate)');
+                        const targetCar = carSlides[${carIndex}];
+                        
+                        if (!targetCar) return null;
+                        
+                        // 차량이 현재 활성화되어 있지 않으면 네비게이션
+                        if (!targetCar.classList.contains('swiper-slide-active')) {
+                          // swiper 버튼으로 이동
+                          const nextBtn = document.querySelector('.car-swiper-control-button.swiper-button-next');
+                          const prevBtn = document.querySelector('.car-swiper-control-button.swiper-button-prev');
+                          
+                          // 또는 pagination 버튼 사용
+                          const paginationBtn = document.querySelector('.swiper-pagination-bullet:nth-child(${carIndex + 1})');
+                          if (paginationBtn) {
+                            paginationBtn.click();
+                          } else if (nextBtn && !nextBtn.classList.contains('swiper-button-disabled')) {
+                            nextBtn.click();
+                          }
+                        }
+                        
+                        // 차량 정보 추출
+                        const subTit = targetCar.querySelector('.subTit')?.textContent.trim();
+                        const model = targetCar.querySelector('.tit')?.textContent.trim();
+                        const priceText = targetCar.querySelector('.infoIco .text')?.textContent.trim();
+                        
+                        return {
+                          brand: '${brand.name}',
+                          series: subTit || '${series.name}',
+                          model: model,
+                          price: priceText || '',
+                          index: ${carIndex}
+                        };
+                      })()
+                    `);
+                    
+                    if (vehicleInfo) {
+                      console.log(`        🚗 ${vehicleInfo.model} 선택`);
+                      
+                      // 차량 선택 후 시간대 업데이트 대기
+                      await new Promise(resolve => setTimeout(resolve, 1000));
+                      
+                      // 현재 차량의 시간대 정보 파싱
+                      const timeSlots = await view.webContents.executeJavaScript(`
+                        (function() {
+                          const timeSlots = [];
+                          const timeList = document.querySelectorAll('#orderTimeList a');
+                          
+                          timeList.forEach(timeSlot => {
+                            const timeText = timeSlot.querySelector('.time')?.textContent.trim();
+                            const seatText = timeSlot.querySelector('.seat')?.textContent.trim();
+                            const isDisabled = timeSlot.classList.contains('disabled');
+                            
+                            if (timeText) {
+                              let remainingSeats = 0;
+                              if (seatText && !seatText.includes('매진')) {
+                                const match = seatText.match(/(\\d+)석/);
+                                remainingSeats = match ? parseInt(match[1]) : 0;
+                              }
+                              
+                              timeSlots.push({
+                                time: timeText,
+                                remainingSeats: remainingSeats,
+                                available: !isDisabled && remainingSeats > 0,
+                                fullText: seatText || ''
+                              });
+                            }
+                          });
+                          
+                          return timeSlots;
+                        })()
+                      `);
+                      
+                      seriesVehicleData.push({
+                        ...vehicleInfo,
+                        timeSlots: timeSlots
+                      });
+                      
+                      const availableCount = timeSlots.filter(t => t.available).length;
+                      if (availableCount > 0) {
+                        console.log(`          ✅ ${availableCount}개 시간대 예약 가능`);
+                      } else {
+                        console.log(`          ❌ 예약 가능한 시간대 없음`);
+                      }
+                    }
+                  }
+                  
+                  // 시리즈의 모든 차량 데이터를 저장
+                  const detailInfo = {
+                    brand: brand.name,
+                    series: series.name,
+                    vehicleData: seriesVehicleData,
+                    totalVehicles: vehicleCount,
+                    totalAvailableSlots: seriesVehicleData.reduce((sum, v) => 
+                      sum + v.timeSlots.filter(t => t.available).length, 0)
+                  };
+                  
                   if (detailInfo) {
                     allVehicleData.push(detailInfo);
-                    console.log(`      ✅ ${brand.name} ${series.name}: ${detailInfo.vehicles.length}대 차량, ${detailInfo.timeSlots.length}개 시간대`);
-                    
-                    // 예약 가능한 시간대가 있으면 표시
-                    const availableCount = detailInfo.timeSlots.filter(t => t.available).length;
-                    if (availableCount > 0) {
-                      console.log(`        🎯 예약 가능: ${availableCount}개 시간대`);
-                    }
+                    console.log(`      ✅ ${brand.name} ${series.name}: ${detailInfo.totalVehicles}대 차량, ${detailInfo.totalAvailableSlots}개 예약 가능`);
                   }
                 }
               }
@@ -924,12 +974,22 @@ async function checkAvailability(view, selectedPrograms) {
                 let totalAvailableSlots = 0;
                 
                 allVehicleData.forEach(data => {
-                  totalVehicles += data.vehicles.length;
-                  const available = data.timeSlots.filter(t => t.available).length;
-                  totalAvailableSlots += available;
-                  
-                  if (available > 0) {
-                    console.log(`  ✅ ${data.brand} ${data.series}: ${available}개 예약 가능`);
+                  if (data.totalVehicles) {
+                    totalVehicles += data.totalVehicles;
+                    totalAvailableSlots += data.totalAvailableSlots || 0;
+                    
+                    if (data.totalAvailableSlots > 0) {
+                      console.log(`  ✅ ${data.brand} ${data.series}: ${data.totalAvailableSlots}개 예약 가능`);
+                      // 각 차량별 상세 정보
+                      if (data.vehicleData) {
+                        data.vehicleData.forEach(vehicle => {
+                          const vehicleAvailable = vehicle.timeSlots.filter(t => t.available).length;
+                          if (vehicleAvailable > 0) {
+                            console.log(`    - ${vehicle.model}: ${vehicleAvailable}개 시간대`);
+                          }
+                        });
+                      }
+                    }
                   }
                 });
                 
