@@ -853,49 +853,125 @@ async function checkAvailability(view, selectedPrograms) {
                   
                   console.log(`      🚙 ${vehicleCount}대 차량 발견`);
                   
+                  // 차량이 1대뿐이면 바로 파싱
+                  if (vehicleCount === 1) {
+                    console.log(`        단일 차량 - 바로 파싱`);
+                  }
+                  
                   // 각 차량별로 순회하면서 시간대 파싱
                   for (let carIndex = 0; carIndex < vehicleCount; carIndex++) {
-                    console.log(`        🔄 차량 ${carIndex + 1}/${vehicleCount} 선택 중...`);
+                    console.log(`\n        🔄 차량 ${carIndex + 1}/${vehicleCount} 처리 중...`);
                     
-                    // 차량 선택 - customSlideToForCar 함수 사용 또는 next 버튼
-                    const clickResult = await view.webContents.executeJavaScript(`
-                      (function() {
-                        // customSlideToForCar 함수 사용 (pagination onclick에서 사용하는 함수)
-                        if (typeof customSlideToForCar === 'function') {
-                          customSlideToForCar('${carIndex}');
-                          return 'customSlideToForCar';
-                        }
-                        
-                        // 또는 pagination bullet 직접 클릭
-                        const bullets = document.querySelectorAll('.swiper-pagination-bullet');
-                        if (bullets[${carIndex}]) {
-                          bullets[${carIndex}].click();
-                          return 'pagination';
-                        }
-                        
-                        // 또는 next 버튼으로 이동
-                        const currentActive = document.querySelector('#carList .swiper-slide-active:not(.swiper-slide-duplicate)');
-                        const allSlides = Array.from(document.querySelectorAll('#carList .swiper-slide:not(.swiper-slide-duplicate)'));
-                        const currentIndex = allSlides.indexOf(currentActive);
-                        
-                        if (currentIndex < ${carIndex}) {
-                          const nextBtn = document.querySelector('.car-swiper-control-button.swiper-button-next');
-                          if (nextBtn && !nextBtn.classList.contains('swiper-button-disabled')) {
-                            for (let i = currentIndex; i < ${carIndex}; i++) {
-                              nextBtn.click();
-                            }
-                            return 'next-button';
+                    // 차량이 여러 대일 때만 swiper 이동
+                    if (vehicleCount > 1) {
+                      // 이전 시간대 정보 저장 (변경 확인용)
+                      const beforeTimeInfo = await view.webContents.executeJavaScript(`
+                        (function() {
+                          const firstTime = document.querySelector('#orderTimeList a .time')?.textContent;
+                          return firstTime || 'none';
+                        })()
+                      `);
+                      
+                      // 차량 swiper 이동
+                      const moveResult = await view.webContents.executeJavaScript(`
+                        (function() {
+                          // 1. customSlideToForCar 함수 우선 사용
+                          if (typeof customSlideToForCar === 'function') {
+                            customSlideToForCar('${carIndex}');
+                            return 'customSlideToForCar';
                           }
+                          
+                          // 2. pagination bullet 클릭
+                          const bullets = document.querySelectorAll('.swiper-pagination-bullet');
+                          if (bullets[${carIndex}]) {
+                            bullets[${carIndex}].click();
+                            return 'pagination-click';
+                          }
+                          
+                          // 3. 현재 위치에서 next/prev 버튼 사용
+                          const slides = document.querySelectorAll('#carList .swiper-slide:not(.swiper-slide-duplicate)');
+                          const activeSlide = document.querySelector('#carList .swiper-slide-active:not(.swiper-slide-duplicate)');
+                          const currentIdx = Array.from(slides).indexOf(activeSlide);
+                          
+                          if (currentIdx !== ${carIndex}) {
+                            if (currentIdx < ${carIndex}) {
+                              // next 버튼 클릭
+                              const diff = ${carIndex} - currentIdx;
+                              for (let i = 0; i < diff; i++) {
+                                const nextBtn = document.querySelector('.car-swiper-control-button.swiper-button-next');
+                                if (nextBtn) nextBtn.click();
+                              }
+                              return 'next-buttons';
+                            } else {
+                              // prev 버튼 클릭
+                              const diff = currentIdx - ${carIndex};
+                              for (let i = 0; i < diff; i++) {
+                                const prevBtn = document.querySelector('.car-swiper-control-button.swiper-button-prev');
+                                if (prevBtn) prevBtn.click();
+                              }
+                              return 'prev-buttons';
+                            }
+                          }
+                          
+                          return 'already-there';
+                        })()
+                      `);
+                      
+                      console.log(`          Swiper 이동: ${moveResult}`);
+                      
+                      // 차량 변경 대기
+                      await new Promise(resolve => setTimeout(resolve, 1500));
+                      
+                      // 시간대가 변경되었는지 확인
+                      const afterTimeInfo = await view.webContents.executeJavaScript(`
+                        (function() {
+                          const firstTime = document.querySelector('#orderTimeList a .time')?.textContent;
+                          return firstTime || 'none';
+                        })()
+                      `);
+                      
+                      console.log(`          시간대 변경 확인: ${beforeTimeInfo} → ${afterTimeInfo}`);
+                      
+                      // 시간대가 실제로 업데이트될 때까지 대기 (SPA이므로 비동기 로딩)
+                      let waitCount = 0;
+                      const maxWait = 10; // 최대 5초 대기 (500ms * 10)
+                      
+                      while (waitCount < maxWait) {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        const currentTimeInfo = await view.webContents.executeJavaScript(`
+                          (function() {
+                            const timeList = document.querySelector('#orderTimeList');
+                            if (!timeList) return 'no-list';
+                            
+                            // 로딩 중인지 확인
+                            if (timeList.classList.contains('loading') || 
+                                timeList.style.opacity === '0.5' ||
+                                timeList.querySelector('.spinner')) {
+                              return 'loading';
+                            }
+                            
+                            const firstTime = timeList.querySelector('a .time')?.textContent;
+                            return firstTime || 'empty';
+                          })()
+                        `);
+                        
+                        // 시간대가 변경되었거나 로딩이 완료되면 탈출
+                        if (currentTimeInfo !== 'loading' && currentTimeInfo !== beforeTimeInfo) {
+                          console.log(`          ✅ 시간대 업데이트 완료 (${waitCount * 500}ms 대기)`);
+                          break;
                         }
                         
-                        return 'none';
-                      })()
-                    `);
-                    
-                    console.log(`          네비게이션 방법: ${clickResult}`);
-                    
-                    // 차량 전환 대기
-                    await new Promise(resolve => setTimeout(resolve, 1500));
+                        waitCount++;
+                      }
+                      
+                      if (waitCount >= maxWait) {
+                        console.log(`          ⚠️ 시간대 업데이트 타임아웃 (5초 대기)`);
+                      }
+                    } else {
+                      // 차량이 1대일 때도 시간대 로드 대기
+                      await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
                     
                     // 현재 활성 차량 정보 가져오기
                     const vehicleInfo = await view.webContents.executeJavaScript(`
@@ -932,50 +1008,10 @@ async function checkAvailability(view, selectedPrograms) {
                     `);
                     
                     if (vehicleInfo) {
-                      console.log(`        🚗 [${vehicleInfo.actualIndex + 1}/${vehicleCount}] ${vehicleInfo.model} 선택됨`);
+                      console.log(`        🚗 ${vehicleInfo.model} (${vehicleInfo.price})`);
                       
-                      if (vehicleInfo.requestedIndex !== vehicleInfo.actualIndex) {
-                        console.log(`          ⚠️ 요청 인덱스(${vehicleInfo.requestedIndex})와 실제 인덱스(${vehicleInfo.actualIndex}) 불일치`);
-                      }
-                      
-                      // 현재 활성 차량을 실제로 클릭하여 선택 (시간대 업데이트 트리거)
-                      // "자세히 보기"가 아니라 차량 자체를 클릭해야 함
-                      const carClicked = await view.webContents.executeJavaScript(`
-                        (function() {
-                          const activeCar = document.querySelector('#carList .swiper-slide-active:not(.swiper-slide-duplicate)');
-                          if (!activeCar) return 'no-active-car';
-                          
-                          // 차량 자체를 클릭 (자세히 보기 버튼이 아님)
-                          // carImg 또는 textBox 영역 클릭
-                          const carImg = activeCar.querySelector('.carImg');
-                          const textBox = activeCar.querySelector('.textBox');
-                          
-                          if (carImg) {
-                            carImg.click();
-                            return 'car-image-clicked';
-                          } else if (textBox) {
-                            // 자세히 보기 버튼은 제외하고 textBox 클릭
-                            const titleElement = textBox.querySelector('.tit');
-                            if (titleElement) {
-                              titleElement.click();
-                              return 'car-title-clicked';
-                            }
-                            textBox.click();
-                            return 'textbox-clicked';
-                          } else if (activeCar) {
-                            // 전체 슬라이드 클릭
-                            activeCar.click();
-                            return 'slide-clicked';
-                          }
-                          
-                          return 'no-click';
-                        })()
-                      `);
-                      
-                      console.log(`          차량 클릭 결과: ${carClicked}`);
-                      
-                      // 차량 선택 후 시간대 업데이트 대기
-                      await new Promise(resolve => setTimeout(resolve, 2000));
+                      // 차량 클릭은 생략 - swiper 이동만으로 시간대가 변경되어야 함
+                      // SPA이므로 swiper 이동 시 자동으로 시간대 업데이트됨
                       
                       // 현재 차량의 시간대 정보 파싱
                       const timeSlots = await view.webContents.executeJavaScript(`
