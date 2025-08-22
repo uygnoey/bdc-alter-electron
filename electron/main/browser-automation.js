@@ -611,7 +611,7 @@ async function checkAvailability(view, selectedPrograms) {
           `);
           
           if (clicked) {
-            console.log('프로그램 선택 성공, thirdDepthBox 로드 대기 중...');
+            console.log(`✅ [${program.name}] 프로그램 선택 성공, thirdDepthBox 로드 대기 중...`);
             // thirdDepthBox 로드 대기
             await new Promise(resolve => setTimeout(resolve, 2000));
             
@@ -751,6 +751,27 @@ async function checkAvailability(view, selectedPrograms) {
               program.timeSlots = detailInfo.timeSlots;
               program.hasDetailedInfo = true;
               
+              // 결과 요약 출력
+              console.log(`\n📋 [${program.name}] 파싱 결과:`);
+              console.log(`  - 차량: ${detailInfo.vehicles.length}대`);
+              if (detailInfo.vehicles.length > 0) {
+                detailInfo.vehicles.forEach(v => {
+                  console.log(`    • ${v.brand} ${v.series} ${v.model} (${v.price})`);
+                });
+              }
+              
+              console.log(`  - 시간대: ${detailInfo.timeSlots.length}개`);
+              const availableSlots = detailInfo.timeSlots.filter(t => t.available);
+              console.log(`  - 예약 가능: ${availableSlots.length}개`);
+              if (availableSlots.length > 0) {
+                console.log('  - 예약 가능 시간:');
+                availableSlots.forEach(t => {
+                  console.log(`    • ${t.time} (${t.remainingSeats}석)`);
+                });
+              } else {
+                console.log('  - ⚠️ 예약 가능한 시간대 없음 (모두 매진)');
+              }
+              
               // 돌아가기 버튼 클릭
               const backClicked = await view.webContents.executeJavaScript(`
                 (function() {
@@ -779,10 +800,16 @@ async function checkAvailability(view, selectedPrograms) {
               `);
               
               if (backClicked) {
-                console.log('돌아가기 완료, 다음 프로그램 처리 대기');
+                console.log(`✅ [${program.name}] 돌아가기 완료, 다음 프로그램 처리 대기`);
                 await new Promise(resolve => setTimeout(resolve, 1500));
+              } else {
+                console.log(`⚠️ [${program.name}] 돌아가기 버튼을 찾을 수 없음`);
               }
+            } else {
+              console.log(`❌ [${program.name}] thirdDepthBox를 찾을 수 없음 - 상세 정보 파싱 실패`);
             }
+          } else {
+            console.log(`❌ [${program.name}] 프로그램 선택 실패 - 프로그램을 찾을 수 없음`);
           }
         }
       } else {
@@ -796,12 +823,31 @@ async function checkAvailability(view, selectedPrograms) {
     // 전체 프로그램명 리스트
     const allProgramNames = [...new Set(allProgramsInfo.flatMap(day => day.programs.map(p => p.name)))];
     
+    // 예약 가능한 프로그램 수 계산
+    const availableProgramsCount = allProgramsInfo.reduce((sum, day) => {
+      return sum + day.programs.filter(p => 
+        p.timeSlots && p.timeSlots.some(t => t.available)
+      ).length;
+    }, 0);
+    
+    console.log('\n' + '='.repeat(60));
+    console.log('📊 최종 예약 가능 여부 확인 결과');
+    console.log('='.repeat(60));
+    console.log(`총 ${availableDates.length}개 날짜 확인`);
+    console.log(`총 ${totalPrograms}개 프로그램 발견`);
+    console.log(`예약 가능한 프로그램: ${availableProgramsCount}개`);
+    if (allProgramNames.length > 0) {
+      console.log(`프로그램 종류: ${allProgramNames.join(', ')}`);
+    }
+    console.log('='.repeat(60) + '\n');
+    
     return {
-      hasAvailability: totalPrograms > 0,
-      message: totalPrograms > 0 
-        ? `총 ${totalPrograms}개의 예약 가능한 프로그램을 찾았습니다! [${allProgramNames.join(', ')}]` 
+      hasAvailability: availableProgramsCount > 0,
+      message: availableProgramsCount > 0 
+        ? `총 ${availableProgramsCount}개의 예약 가능한 프로그램을 찾았습니다! [${allProgramNames.join(', ')}]` 
         : '예약 가능한 프로그램이 없습니다.',
-      count: totalPrograms,
+      count: availableProgramsCount,
+      totalPrograms: totalPrograms,
       programNames: allProgramNames,
       slots: allProgramsInfo,
       availableDates: availableDates,
