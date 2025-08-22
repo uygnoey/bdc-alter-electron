@@ -5,6 +5,7 @@ import SolveCaptcha from './solvecaptcha-wrapper.js';
 import dotenv from 'dotenv';
 import { fetchBMWPrograms } from './bmw-programs-parser.js';
 import './browser-automation.js'; // 새로운 자동화 모듈 import
+import { autoUpdater } from 'electron-updater';
 
 // .env 파일 로드
 dotenv.config();
@@ -306,8 +307,59 @@ ipcMain.handle('browser:toggleDevTools', async (event, id) => {
 });
 
 
+// Auto-updater 설정
+function setupAutoUpdater() {
+  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+  
+  if (!isDev) {
+    // GitHub releases를 통한 자동 업데이트
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'uygnoey',
+      repo: 'bdc-alter-electron'
+    });
+    
+    // 업데이트 체크 (앱 시작 후 30초, 그 후 30분마다)
+    autoUpdater.checkForUpdatesAndNotify();
+    setInterval(() => {
+      autoUpdater.checkForUpdatesAndNotify();
+    }, 30 * 60 * 1000);
+    
+    // Auto-updater 이벤트 핸들러
+    autoUpdater.on('checking-for-update', () => {
+      console.log('Checking for update...');
+    });
+    
+    autoUpdater.on('update-available', (info) => {
+      console.log('Update available:', info);
+    });
+    
+    autoUpdater.on('update-not-available', (info) => {
+      console.log('Update not available.');
+    });
+    
+    autoUpdater.on('error', (err) => {
+      console.log('Error in auto-updater:', err);
+    });
+    
+    autoUpdater.on('download-progress', (progressObj) => {
+      let log_message = "Download speed: " + progressObj.bytesPerSecond;
+      log_message = log_message + ' - Downloaded ' + progressObj.percent + '%';
+      log_message = log_message + ' (' + progressObj.transferred + "/" + progressObj.total + ')';
+      console.log(log_message);
+    });
+    
+    autoUpdater.on('update-downloaded', (info) => {
+      console.log('Update downloaded');
+      // 업데이트가 다운로드되면 자동으로 설치 및 재시작
+      autoUpdater.quitAndInstall();
+    });
+  }
+}
+
 app.whenReady().then(() => {
   createWindow();
+  setupAutoUpdater();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
