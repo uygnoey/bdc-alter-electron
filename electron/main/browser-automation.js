@@ -465,6 +465,7 @@ async function checkAvailability(view, selectedPrograms) {
         dates: []
       };
       
+      // 이 달의 모든 날짜를 순회
       for (const dateInfo of availableDates) {
       console.log(`\n📆 ${dateInfo.date}일 확인 중...`);
       
@@ -944,45 +945,53 @@ async function checkAvailability(view, selectedPrograms) {
       }
     } // 날짜 루프 끝
     
-    // 현재 달 데이터 저장
-    allMonthsData.push(monthData);
-    console.log(`\n✅ ${currentMonthInfo.month} 확인 완료: ${monthData.dates.length}개 날짜에서 프로그램 확인`);
-    
-    // 다음 달로 이동 시도
-    const canGoNext = await view.webContents.executeJavaScript(`
-      (function() {
-        const nextBtn = document.querySelector('#nextCalendar');
-        if (nextBtn && nextBtn.style.cursor !== 'default') {
-          console.log('다음 달 버튼 활성화 확인');
-          return true;
-        }
-        console.log('다음 달 버튼 비활성화');
-        return false;
-      })()
-    `);
-    
-    if (!canGoNext) {
-      console.log('더 이상 다음 달로 이동할 수 없습니다.');
-      break;
-    }
-    
-    // 다음 달로 이동
-    await view.webContents.executeJavaScript(`
-      (function() {
-        const nextBtn = document.querySelector('#nextCalendar');
-        if (nextBtn) {
-          console.log('다음 달로 이동');
-          nextBtn.click();
-          return true;
-        }
-        return false;
-      })()
-    `);
-    
-    // 다음 달 로드 대기
-    await new Promise(resolve => setTimeout(resolve, 2500));
-    monthsChecked++;
-    
+      // 현재 달 데이터 저장
+      allMonthsData.push(monthData);
+      console.log(`\n✅ ${currentMonthInfo.month} 확인 완료: ${monthData.dates.length}개 날짜에서 프로그램 확인`);
+      
+      // 월 카운터 증가
+      monthsChecked++;
+      
+      // 더 확인할 달이 있는지 체크
+      if (monthsChecked >= maxMonthsToCheck) {
+        console.log('최대 확인 개월 수에 도달했습니다.');
+        break;
+      }
+      
+      // 다음 달로 이동 시도
+      const canGoNext = await view.webContents.executeJavaScript(`
+        (function() {
+          const nextBtn = document.querySelector('#nextCalendar');
+          if (nextBtn && nextBtn.style.cursor !== 'default') {
+            console.log('다음 달 버튼 활성화 확인');
+            return true;
+          }
+          console.log('다음 달 버튼 비활성화');
+          return false;
+        })()
+      `);
+      
+      if (!canGoNext) {
+        console.log('더 이상 다음 달로 이동할 수 없습니다.');
+        break;
+      }
+      
+      // 다음 달로 이동
+      await view.webContents.executeJavaScript(`
+        (function() {
+          const nextBtn = document.querySelector('#nextCalendar');
+          if (nextBtn) {
+            console.log('다음 달로 이동');
+            nextBtn.click();
+            return true;
+          }
+          return false;
+        })()
+      `);
+      
+      // 다음 달 로드 대기
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      
     } // while 루프 끝
     
     // 3. 전체 결과 정리
