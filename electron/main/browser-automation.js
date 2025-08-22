@@ -352,65 +352,203 @@ async function parsePrograms(view) {
   }
 }
 
-// 예약 가능 여부 확인
+// 예약 가능 여부 확인 (BMW 스케줄 페이지용)
 async function checkAvailability(view, selectedPrograms) {
   try {
-    const availability = await view.webContents.executeJavaScript(`
+    console.log('📅 예약 가능 여부 확인 시작...');
+    console.log('선택된 프로그램:', selectedPrograms);
+    
+    // 스케줄 페이지에 도착했는지 확인
+    const currentURL = view.webContents.getURL();
+    if (!currentURL.includes('schedules/view')) {
+      console.log('스케줄 페이지가 아닙니다. 이동 중...');
+      await view.webContents.loadURL('https://driving-center.bmw.co.kr/orders/programs/schedules/view');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    
+    // 1. 캘린더에서 예약 가능한 날짜들 찾기
+    const availableDates = await view.webContents.executeJavaScript(`
       (function() {
-        const results = [];
-        const programs = ${JSON.stringify(selectedPrograms)};
+        const dates = [];
+        // disabled가 아닌 날짜 버튼들 찾기
+        const buttons = document.querySelectorAll('#calendarBody button.calendarDateBtn:not([disabled])');
         
-        // 각 프로그램에 대해 예약 가능 여부 확인
-        programs.forEach(program => {
-          // 프로그램별 예약 가능 날짜 확인
-          const availableDates = document.querySelectorAll(
-            '.calendar-day[data-program="' + program.id + '"]:not(.disabled), ' +
-            '.schedule-slot[data-program="' + program.id + '"].available'
-          );
-          
-          if (availableDates.length > 0) {
-            availableDates.forEach(slot => {
-              const date = slot.getAttribute('data-date') || slot.querySelector('.date')?.textContent;
-              const time = slot.getAttribute('data-time') || slot.querySelector('.time')?.textContent;
-              
-              results.push({
-                program: program.name,
-                date: date,
-                time: time,
-                available: true
-              });
-            });
-          }
+        console.log('예약 가능한 날짜 버튼 개수:', buttons.length);
+        
+        buttons.forEach(btn => {
+          const date = btn.textContent.trim();
+          const dayCode = btn.getAttribute('day-code');
+          dates.push({
+            date: date,
+            dayCode: dayCode
+          });
         });
         
-        // 일반적인 예약 가능 슬롯 확인 (프로그램 구분 없이)
-        if (results.length === 0) {
-          const generalSlots = document.querySelectorAll('.available-slot, .can-reserve, [class*="available"]');
-          generalSlots.forEach(slot => {
-            const text = slot.textContent || '';
-            if (text && !text.includes('마감') && !text.includes('불가')) {
-              results.push({
-                program: 'Unknown',
-                available: true,
-                element: slot.className
-              });
-            }
-          });
-        }
-        
-        return {
-          hasAvailability: results.length > 0,
-          count: results.length,
-          slots: results
-        };
+        return dates;
       })()
     `);
     
-    return availability;
+    console.log('예약 가능한 날짜들:', availableDates);
+    
+    if (availableDates.length === 0) {
+      return {
+        hasAvailability: false,
+        message: '이번 달에 예약 가능한 날짜가 없습니다.',
+        count: 0,
+        slots: [],
+        availableDates: [],
+        timestamp: new Date().toISOString()
+      };
+    }
+    
+    // 2. 각 날짜를 순회하며 프로그램 정보 수집
+    const allProgramsInfo = [];
+    
+    for (const dateInfo of availableDates) {
+      console.log(`\n📆 ${dateInfo.date}일 확인 중...`);
+      
+      // 날짜 클릭
+      await view.webContents.executeJavaScript(`
+        (function() {
+          const btn = Array.from(document.querySelectorAll('#calendarBody button.calendarDateBtn:not([disabled])')).find(b => 
+            b.textContent.trim() === '${dateInfo.date}'
+          );
+          if (btn) {
+            console.log('날짜 버튼 클릭:', '${dateInfo.date}');
+            btn.click();
+            return true;
+          }
+          return false;
+        })()
+      `);
+      
+      // 데이터 로드 대기
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // 해당 날짜의 프로그램 정보 파싱
+      const programsForDate = await view.webContents.executeJavaScript(`
+        (function() {
+          const programs = [];
+          const selectedPrograms = ${JSON.stringify(selectedPrograms)};
+          
+          console.log('선택된 프로그램 목록:', selectedPrograms);
+          console.log('페이지 내용 확인 중...');
+          
+          // 프로그램 정보가 표시되는 영역 찾기
+          // 1. 테이블 구조로 시도
+          const tables = document.querySelectorAll('table');
+          console.log('테이블 개수:', tables.length);
+          
+          tables.forEach((table, idx) => {
+            const rows = table.querySelectorAll('tr');
+            console.log('테이블 ' + idx + '의 행 개수:', rows.length);
+            
+            rows.forEach(row => {
+              const text = row.textContent || '';
+              
+              // 선택된 프로그램 이름이 포함되어 있는지 확인
+              selectedPrograms.forEach(programName => {
+                if (text.includes(programName)) {
+                  // 시간 정보 찾기 (예: 09:00, 14:00 등)
+                  const timeMatch = text.match(/\\d{2}:\\d{2}/);
+                  const time = timeMatch ? timeMatch[0] : '';
+                  
+                  // 남은 자리 정보 찾기 (예: 5명, 10석 등)
+                  const seatsMatch = text.match(/(\\d+)[명석]/);
+                  const seats = seatsMatch ? seatsMatch[1] : '';
+                  
+                  // 마감 여부 확인
+                  const isClosed = text.includes('마감') || text.includes('종료') || text.includes('불가');
+                  
+                  if (!isClosed) {
+                    programs.push({
+                      name: programName,
+                      date: '${dateInfo.date}',
+                      time: time,
+                      remainingSeats: seats,
+                      available: true,
+                      fullText: text.substring(0, 200) // 디버깅용
+                    });
+                    console.log('프로그램 발견:', programName, '날짜:', '${dateInfo.date}', '시간:', time);
+                  }
+                }
+              });
+            });
+          });
+          
+          // 2. 리스트 구조로도 시도
+          if (programs.length === 0) {
+            const listItems = document.querySelectorAll('li, div[class*="item"], div[class*="program"], div[class*="schedule"]');
+            console.log('리스트 아이템 개수:', listItems.length);
+            
+            listItems.forEach(item => {
+              const text = item.textContent || '';
+              
+              selectedPrograms.forEach(programName => {
+                if (text.includes(programName) && !text.includes('마감')) {
+                  programs.push({
+                    name: programName,
+                    date: '${dateInfo.date}',
+                    available: true,
+                    element: item.tagName.toLowerCase(),
+                    fullText: text.substring(0, 200)
+                  });
+                }
+              });
+            });
+          }
+          
+          // 중복 제거
+          const uniquePrograms = [];
+          const seen = new Set();
+          programs.forEach(p => {
+            const key = p.name + p.date + p.time;
+            if (!seen.has(key)) {
+              seen.add(key);
+              uniquePrograms.push(p);
+            }
+          });
+          
+          console.log('${dateInfo.date}일 파싱 결과:', uniquePrograms.length, '개 프로그램');
+          return uniquePrograms;
+        })()
+      `);
+      
+      // 결과 저장
+      if (programsForDate.length > 0) {
+        allProgramsInfo.push({
+          date: dateInfo.date,
+          dayCode: dateInfo.dayCode,
+          programs: programsForDate
+        });
+      }
+      
+      console.log(`${dateInfo.date}일: ${programsForDate.length}개 프로그램 발견`);
+    }
+    
+    // 3. 전체 결과 정리
+    const totalPrograms = allProgramsInfo.reduce((sum, day) => sum + day.programs.length, 0);
+    
+    return {
+      hasAvailability: totalPrograms > 0,
+      message: totalPrograms > 0 
+        ? `총 ${totalPrograms}개의 예약 가능한 프로그램을 찾았습니다!` 
+        : '선택한 프로그램이 예약 가능한 날짜에 없습니다.',
+      count: totalPrograms,
+      slots: allProgramsInfo,
+      availableDates: availableDates,
+      timestamp: new Date().toISOString()
+    };
     
   } catch (error) {
-    console.error('예약 가능 여부 확인 중 오류:', error);
-    return { hasAvailability: false, count: 0, slots: [] };
+    console.error('예약 확인 중 오류:', error);
+    return { 
+      hasAvailability: false, 
+      count: 0, 
+      slots: [],
+      error: error.message,
+      timestamp: new Date().toISOString()
+    };
   }
 }
 
