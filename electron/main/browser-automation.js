@@ -458,8 +458,7 @@ async function checkAvailability(view, selectedPrograms) {
         monthsChecked++;
         continue;
       }
-    }
-    
+      
       // 2. 현재 달의 각 날짜를 순회하며 프로그램 정보 수집
       const monthData = {
         month: currentMonthInfo.month,
@@ -984,13 +983,13 @@ async function checkAvailability(view, selectedPrograms) {
     await new Promise(resolve => setTimeout(resolve, 2500));
     monthsChecked++;
     
-  } // while 루프 끝
-  
-  // 3. 전체 결과 정리
-  const allProgramsInfo = [];
-  allMonthsData.forEach(monthData => {
-    allProgramsInfo.push(...monthData.dates);
-  });
+    } // while 루프 끝
+    
+    // 3. 전체 결과 정리
+    const allProgramsInfo = [];
+    allMonthsData.forEach(monthData => {
+      allProgramsInfo.push(...monthData.dates);
+    });
     const totalPrograms = allProgramsInfo.reduce((sum, day) => sum + day.programs.length, 0);
     
     // 전체 프로그램명 리스트
