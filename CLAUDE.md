@@ -100,62 +100,128 @@ SOLVECAPTCHA_API_KEY=your_api_key
 - URL: https://github.com/uygnoey/bdc-alter-electron
 - Main branch: main
 
-## Recent Major Refactoring (2025-08-21) / 최근 주요 리팩토링
+## Latest Updates (2025-08-22) / 최신 업데이트
 
-### Changed Approach / 접근 방식 변경
-- **Direct Schedule Page Access**: Now starts from `https://driving-center.bmw.co.kr/orders/programs/schedules/view`
-- **스케줄 페이지 직접 접근**: 이제 스케줄 페이지부터 시작
+### 1. Multi-Category Program Parsing / 모든 카테고리 프로그램 파싱
+- **All Categories Iteration**: Now checks Experience, Training, Owner, Test Drive, Off-Road
+- **모든 카테고리 순회**: Experience, Training, Owner, Test Drive, Off-Road 모두 확인
+- Each category is clicked and activated before parsing
+- 각 카테고리를 클릭하여 활성화 후 파싱
+
+### 2. Continuous Monitoring / 연속 모니터링
+- **No Intervals**: Immediately starts next check after completion
+- **주기 없음**: 완료 즉시 다음 확인 시작
+- Uses `useRef` to maintain monitoring state
+- Force stop with AbortController implementation
+
+### 3. Program Filtering / 프로그램 필터링
+- **Exact Name Matching**: "Starter Pack" ≠ "i Starter Pack"
+- **정확한 이름 매칭**: "Starter Pack" ≠ "i Starter Pack"
+- Language variants supported: (KOR), (ENG)
+- Only selected programs are shown in results
+
+### 4. Date Format / 날짜 형식
+- **Full Date Display**: "2025년 08월 22일" format
+- **전체 날짜 표시**: "2025년 08월 22일" 형식
+- monthYear info passed from backend to frontend
+
+### 5. Build System / 빌드 시스템
+- **Electron Builder**: Multi-platform support (macOS, Windows, Linux)
+- **Auto-updater**: GitHub Releases integration
+- **Icons**: Generated from SVG → PNG for all platforms
+- **Config**: electron-builder.yml configuration file
+
+### Build Commands / 빌드 명령어
+```bash
+bun run dist:mac     # macOS build
+bun run dist:win     # Windows build  
+bun run dist:linux   # Linux build
+bun run release      # GitHub release
+```
+
+### Version Info
+- Current: 0.0.1
+- App ID: me.yeongyu.bmw.driving.center.monitor
+- Auto-update: Checks on startup and every 30 minutes
+
+## Recent Major Refactoring (2025-08-21) / 이전 주요 리팩토링
 
 ### Program Data Structure / 프로그램 데이터 구조
 - **Before**: `{ id: string, name: string, category: string }[]`
 - **After**: `string[]` (simple array of program names)
 - **변경**: 객체 배열에서 단순 문자열 배열로
 
-### Key Improvements / 주요 개선사항
-1. **Program Parsing**: Direct from `useAmount/view` without login
-2. **Junior Campus Filtering**: Excludes `chargeCont2` DOM area
-3. **Rowspan Handling**: Properly handles multi-row programs like Taxi
-4. **No Parsing on Monitor Start**: Only login and check reservations
-5. **ERR_ABORTED**: Properly handled during redirects
-
 ### Current Flow / 현재 플로우
 1. User clicks "프로그램 가져오기" → Fetches programs from useAmount/view
 2. User selects programs and starts monitoring
 3. System navigates to schedule page → Auto-login if needed → Check reservations
-4. No program parsing during monitoring initialization
+4. All categories are checked for selected programs
+5. Results show only selected programs with full date format
+
+## Important Implementation Details / 중요 구현 세부사항
+
+### Program Name Matching Logic / 프로그램명 매칭 로직
+```javascript
+// Exact matching with language variants
+"Starter Pack" matches: "Starter Pack (KOR)", "Starter Pack (ENG)"
+"Starter Pack" does NOT match: "i Starter Pack", "Starter Pack Plus"
+
+// M series programs
+"M Town" matches: "M Town (KOR)", "M Town (ENG)" 
+"M Town" does NOT match: "M Town Driving"
+```
+
+### Continuous Monitoring Implementation / 연속 모니터링 구현
+```javascript
+const isRunningRef = useRef(false);
+const continuousMonitoring = async () => {
+  while (isRunningRef.current) {
+    await checkReservation();
+    // No delay, immediately continue
+  }
+}
+```
+
+### Force Stop with AbortController / 강제 중단
+```javascript
+let monitoringAbortController = new AbortController();
+// Check throughout execution:
+if (monitoringAbortController.signal.aborted) {
+  throw new Error('중단됨');
+}
+```
+
+## Known Issues & Considerations / 알려진 이슈 및 고려사항
+
+### Current Limitations / 현재 제한사항
+- hCaptcha requires manual solving (SolveCaptcha API integration incomplete)
+- Windows and Linux builds need testing
+- Code signing for macOS distribution pending
+
+## Key Files and Their Roles / 주요 파일과 역할
+
+### Core Files
+- `electron/main/browser-automation.js`: BMW site automation logic / BMW 사이트 자동화 로직
+- `src/components/BMWReservationPanel.tsx`: UI for reservation monitoring / 예약 모니터링 UI
+- `electron-builder.yml`: Build configuration / 빌드 설정
+- `build/`: Icons and resources / 아이콘 및 리소스
+- `PROJECT_MEMORY.md`: Detailed project documentation in English / 영문 상세 프로젝트 문서
+
+## Critical Notes / 중요 참고사항
+- **NEVER** use npm or yarn - always use `bun`
+- Program names are now simple string arrays, not objects
+- Login only happens when redirected (not proactively)
+- All responses should be in Korean (한국어)
+- Don't create documentation unless explicitly requested
 
 ## TODO - Next Implementation / 다음 구현 사항
 
-### Reservation Availability Parsing / 예약 가능 여부 파싱
-1. **Parse Available Dates**: Extract available dates for selected programs from schedule page
-   - 선택한 프로그램의 예약 가능한 날짜 파싱
-   
-2. **Parse Time Slots**: For each available date, parse:
-   - Open time slots (열린 시간대)
-   - Remaining seats (남은 자리 수)
-   - Full booking status (만석 여부)
-   
-3. **Data Structure Needed**:
-   ```javascript
-   {
-     programName: string,
-     availableDates: [
-       {
-         date: string,
-         timeSlots: [
-           {
-             time: string,
-             remainingSeats: number,
-             isAvailable: boolean
-           }
-         ]
-       }
-     ]
-   }
-   ```
+### 1. Enhanced Notifications / 알림 개선
+- Email notifications
+- Telegram/Discord integration
+- Sound alerts
 
-4. **UI Updates Required**:
-   - Display available dates and times in real-time
-   - Show remaining seats for each slot
-   - Alert user when seats become available
-   - Auto-refresh to check for new availability
+### 2. Auto-reservation / 자동 예약
+- Automatic seat booking when available
+- Captcha solving automation improvement
+- Payment integration
