@@ -430,13 +430,44 @@ export default function BMWReservationPanel({
                     📅 {slot.date}일
                   </div>
                   {slot.programs && slot.programs.length > 0 ? (
-                    <div className="ml-4 mt-1 space-y-1">
+                    <div className="ml-4 mt-1 space-y-2">
                       {slot.programs.map((program, pidx) => (
-                        <div key={pidx} className="text-xs text-gray-600">
-                          • {program.name}
-                          {program.duration && ` (${program.duration})`}
-                          {program.price && ` - ${program.price}`}
-                          {program.isSelected && ' ✓'}
+                        <div key={pidx} className="text-xs">
+                          <div className="text-gray-700 font-medium">
+                            • {program.name}
+                            {program.duration && ` (${program.duration})`}
+                            {program.price && ` - ${program.price}`}
+                            {program.isSelected && ' ✅'}
+                          </div>
+                          
+                          {/* 차량 정보 표시 */}
+                          {program.vehicles && program.vehicles.length > 0 && (
+                            <div className="ml-4 mt-1 text-gray-600">
+                              <span className="font-medium">차량:</span>
+                              {program.vehicles.map((v, vidx) => (
+                                <span key={vidx} className="ml-1">
+                                  {v.series} {v.model} ({v.price}){vidx < program.vehicles.length - 1 ? ', ' : ''}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {/* 시간대 정보 표시 */}
+                          {program.timeSlots && program.timeSlots.length > 0 && (
+                            <div className="ml-4 mt-1">
+                              <span className="font-medium text-gray-600">예약 가능 시간:</span>
+                              <div className="ml-2 mt-1 grid grid-cols-2 gap-1">
+                                {program.timeSlots.filter(t => t.available).map((time, tidx) => (
+                                  <div key={tidx} className="text-green-600 text-xs">
+                                    {time.time} ({time.remainingSeats}석)
+                                  </div>
+                                ))}
+                                {program.timeSlots.filter(t => t.available).length === 0 && (
+                                  <div className="text-red-500 text-xs">예약 가능한 시간대 없음</div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
