@@ -366,45 +366,107 @@ async function checkAvailability(view, selectedPrograms) {
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
     
-    // 1. 캘린더에서 예약 가능한 날짜들 찾기
-    const availableDates = await view.webContents.executeJavaScript(`
-      (function() {
-        const dates = [];
-        // disabled가 아닌 날짜 버튼들 찾기
-        const buttons = document.querySelectorAll('#calendarBody button.calendarDateBtn:not([disabled])');
-        
-        console.log('예약 가능한 날짜 버튼 개수:', buttons.length);
-        
-        buttons.forEach(btn => {
-          const date = btn.textContent.trim();
-          const dayCode = btn.getAttribute('day-code');
-          dates.push({
-            date: date,
-            dayCode: dayCode
+    // 여러 달을 순회하며 예약 확인
+    const allMonthsData = [];
+    let monthsChecked = 0;
+    const maxMonthsToCheck = 3; // 최대 3개월까지 확인
+    
+    while (monthsChecked < maxMonthsToCheck) {
+      // 현재 월 정보 가져오기
+      const currentMonthInfo = await view.webContents.executeJavaScript(`
+        (function() {
+          const monthLabel = document.querySelector('#calendarLabel');
+          const currentMonth = monthLabel ? monthLabel.textContent.trim() : '';
+          
+          // 캘린더 에러 박스 확인 (예약 미오픈)
+          const errorBox = document.querySelector('#calendarErrorBox');
+          const hasError = errorBox && errorBox.style.display !== 'none';
+          
+          if (hasError) {
+            const errorMsg = errorBox.querySelector('.tit')?.textContent.trim() || '';
+            console.log('캘린더 오류:', errorMsg);
+            return {
+              month: currentMonth,
+              hasError: true,
+              errorMessage: errorMsg
+            };
+          }
+          
+          return {
+            month: currentMonth,
+            hasError: false
+          };
+        })()
+      `);
+      
+      console.log(`\n📅 ${currentMonthInfo.month} 확인 중...`);
+      
+      if (currentMonthInfo.hasError) {
+        console.log(`❌ ${currentMonthInfo.month}: ${currentMonthInfo.errorMessage}`);
+        console.log('더 이상 확인할 수 있는 달이 없습니다.');
+        break;
+      }
+      
+      // 1. 현재 달의 예약 가능한 날짜들 찾기
+      const availableDates = await view.webContents.executeJavaScript(`
+        (function() {
+          const dates = [];
+          // disabled가 아닌 날짜 버튼들 찾기
+          const buttons = document.querySelectorAll('#calendarBody button.calendarDateBtn:not([disabled])');
+          
+          console.log('예약 가능한 날짜 버튼 개수:', buttons.length);
+          
+          buttons.forEach(btn => {
+            const date = btn.textContent.trim();
+            const dayCode = btn.getAttribute('day-code');
+            dates.push({
+              date: date,
+              dayCode: dayCode
+            });
           });
-        });
+          
+          return dates;
+        })()
+      `);
+      
+      console.log(`${currentMonthInfo.month} 예약 가능한 날짜들:`, availableDates);
+      
+      if (availableDates.length === 0) {
+        console.log(`${currentMonthInfo.month}에는 예약 가능한 날짜가 없습니다. 다음 달 확인...`);
         
-        return dates;
-      })()
-    `);
-    
-    console.log('예약 가능한 날짜들:', availableDates);
-    
-    if (availableDates.length === 0) {
-      return {
-        hasAvailability: false,
-        message: '이번 달에 예약 가능한 날짜가 없습니다.',
-        count: 0,
-        slots: [],
-        availableDates: [],
-        timestamp: new Date().toISOString()
-      };
+        // 다음 달로 이동
+        const nextMonthClicked = await view.webContents.executeJavaScript(`
+          (function() {
+            const nextBtn = document.querySelector('#nextCalendar');
+            if (nextBtn && nextBtn.style.cursor !== 'default') {
+              console.log('다음 달 버튼 클릭');
+              nextBtn.click();
+              return true;
+            }
+            console.log('다음 달 버튼을 클릭할 수 없음');
+            return false;
+          })()
+        `);
+        
+        if (!nextMonthClicked) {
+          console.log('더 이상 다음 달로 이동할 수 없습니다.');
+          break;
+        }
+        
+        // 다음 달 로드 대기
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        monthsChecked++;
+        continue;
+      }
     }
     
-    // 2. 각 날짜를 순회하며 프로그램 정보 수집
-    const allProgramsInfo = [];
-    
-    for (const dateInfo of availableDates) {
+      // 2. 현재 달의 각 날짜를 순회하며 프로그램 정보 수집
+      const monthData = {
+        month: currentMonthInfo.month,
+        dates: []
+      };
+      
+      for (const dateInfo of availableDates) {
       console.log(`\n📆 ${dateInfo.date}일 확인 중...`);
       
       // 날짜 클릭
@@ -538,7 +600,7 @@ async function checkAvailability(view, selectedPrograms) {
       `);
       
       // 결과 저장 (프로그램이 있든 없든 날짜 정보는 저장)
-      allProgramsInfo.push({
+      monthData.dates.push({
         date: dateInfo.date,
         dayCode: dateInfo.dayCode,
         programs: programsForDate,
@@ -881,9 +943,54 @@ async function checkAvailability(view, selectedPrograms) {
       } else {
         console.log(`${dateInfo.date}일: 프로그램 없음`);
       }
+    } // 날짜 루프 끝
+    
+    // 현재 달 데이터 저장
+    allMonthsData.push(monthData);
+    console.log(`\n✅ ${currentMonthInfo.month} 확인 완료: ${monthData.dates.length}개 날짜에서 프로그램 확인`);
+    
+    // 다음 달로 이동 시도
+    const canGoNext = await view.webContents.executeJavaScript(`
+      (function() {
+        const nextBtn = document.querySelector('#nextCalendar');
+        if (nextBtn && nextBtn.style.cursor !== 'default') {
+          console.log('다음 달 버튼 활성화 확인');
+          return true;
+        }
+        console.log('다음 달 버튼 비활성화');
+        return false;
+      })()
+    `);
+    
+    if (!canGoNext) {
+      console.log('더 이상 다음 달로 이동할 수 없습니다.');
+      break;
     }
     
-    // 3. 전체 결과 정리
+    // 다음 달로 이동
+    await view.webContents.executeJavaScript(`
+      (function() {
+        const nextBtn = document.querySelector('#nextCalendar');
+        if (nextBtn) {
+          console.log('다음 달로 이동');
+          nextBtn.click();
+          return true;
+        }
+        return false;
+      })()
+    `);
+    
+    // 다음 달 로드 대기
+    await new Promise(resolve => setTimeout(resolve, 2500));
+    monthsChecked++;
+    
+  } // while 루프 끝
+  
+  // 3. 전체 결과 정리
+  const allProgramsInfo = [];
+  allMonthsData.forEach(monthData => {
+    allProgramsInfo.push(...monthData.dates);
+  });
     const totalPrograms = allProgramsInfo.reduce((sum, day) => sum + day.programs.length, 0);
     
     // 전체 프로그램명 리스트
@@ -899,7 +1006,8 @@ async function checkAvailability(view, selectedPrograms) {
     console.log('\n' + '='.repeat(60));
     console.log('📊 최종 예약 가능 여부 확인 결과');
     console.log('='.repeat(60));
-    console.log(`총 ${availableDates.length}개 날짜 확인`);
+    console.log(`확인한 달: ${allMonthsData.map(m => m.month).join(', ')}`);
+    console.log(`총 ${allProgramsInfo.length}개 날짜 확인`);
     console.log(`총 ${totalPrograms}개 프로그램 발견`);
     console.log(`예약 가능한 프로그램: ${availableProgramsCount}개`);
     if (allProgramNames.length > 0) {
@@ -910,13 +1018,13 @@ async function checkAvailability(view, selectedPrograms) {
     return {
       hasAvailability: availableProgramsCount > 0,
       message: availableProgramsCount > 0 
-        ? `총 ${availableProgramsCount}개의 예약 가능한 프로그램을 찾았습니다! [${allProgramNames.join(', ')}]` 
-        : '예약 가능한 프로그램이 없습니다.',
+        ? `${allMonthsData.map(m => m.month).join(', ')}에서 총 ${availableProgramsCount}개의 예약 가능한 프로그램을 찾았습니다! [${allProgramNames.join(', ')}]` 
+        : `${allMonthsData.map(m => m.month).join(', ')}에 예약 가능한 프로그램이 없습니다.`,
       count: availableProgramsCount,
       totalPrograms: totalPrograms,
       programNames: allProgramNames,
+      monthsData: allMonthsData,
       slots: allProgramsInfo,
-      availableDates: availableDates,
       timestamp: new Date().toISOString()
     };
     
