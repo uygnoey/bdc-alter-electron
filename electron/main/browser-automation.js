@@ -359,7 +359,11 @@ async function checkAvailability(view, selectedPrograms) {
     const startTime = Date.now();
     
     console.log('📅 예약 가능 여부 확인 시작...');
-    console.log('선택된 프로그램:', selectedPrograms);
+    if (selectedPrograms && selectedPrograms.length > 0) {
+      console.log('✅ 선택된 프로그램만 파싱:', selectedPrograms);
+    } else {
+      console.log('📊 전체 프로그램 파싱 (선택된 프로그램 없음)');
+    }
     console.log('시작 시간:', new Date().toLocaleTimeString('ko-KR'));
     
     // 중단 신호 확인
@@ -557,80 +561,105 @@ async function checkAvailability(view, selectedPrograms) {
       
       console.log(`${dateInfo.date}일: 프로그램 영역 확인 완료`);
       
-      // 해당 날짜의 프로그램 정보 파싱
-      const programsForDate = await view.webContents.executeJavaScript(`
+      // 모든 카테고리를 순회하며 프로그램 정보 파싱
+      const allProgramsForDate = [];
+      
+      // 카테고리 목록 가져오기
+      const categories = await view.webContents.executeJavaScript(`
         (function() {
-          const programs = [];
-          const selectedPrograms = ${JSON.stringify(selectedPrograms)};
-          
-          console.log('날짜 ${dateInfo.date}일의 프로그램 정보 파싱 시작...');
-          
-          // secondDepthBox 내부 확인
-          const secondDepthBox = document.querySelector('#secondDepthBox');
-          if (!secondDepthBox) {
-            console.log('secondDepthBox를 찾을 수 없음');
-            return [];
-          }
-          
-          // 1. 먼저 현재 보이는 프로그램들 모두 파싱 (중복 제거)
-          const visiblePrograms = document.querySelectorAll('#productList .swiper-slide:not(.swiper-slide-duplicate) .textBox');
-          console.log('현재 보이는 프로그램 개수:', visiblePrograms.length);
-          
-          visiblePrograms.forEach(textBox => {
-            const titleEl = textBox.querySelector('.tit');
-            if (!titleEl) return;
-            
-            const programName = titleEl.textContent.trim();
-            console.log('프로그램 발견:', programName);
-            
-            // 해당 프로그램의 상세 정보 가져오기
-            const descEl = textBox.querySelector('.text');
-            const durationEl = textBox.querySelector('.dlInfoBox dl:nth-child(1) dd');
-            const priceEl = textBox.querySelector('.dlInfoBox dl:nth-child(2) dd');
-            
-            // 선택된 프로그램과 매칭 확인 (선택된 프로그램이 있는 경우만)
-            let isSelected = false;
-            if (selectedPrograms && selectedPrograms.length > 0) {
-              isSelected = selectedPrograms.some(selected => 
-                programName.toLowerCase().includes(selected.toLowerCase()) || 
-                selected.toLowerCase().includes(programName.toLowerCase())
-              );
-            }
-            
-            programs.push({
-              name: programName,
-              description: descEl ? descEl.textContent.trim() : '',
-              duration: durationEl ? durationEl.textContent.trim() : '',
-              price: priceEl ? priceEl.textContent.trim() : '',
-              date: '${dateInfo.date}',
-              available: true,
-              isSelected: isSelected  // 선택된 프로그램인지 표시
-            });
-            console.log('  - ' + programName + (isSelected ? ' ✅' : ''));
-          });
-          
-          // 2. 카테고리가 여러 개인 경우 처리 (나중에 별도로 처리)
-          const categories = document.querySelectorAll('#categoryList .swiper-slide:not(.tabLine)');
-          console.log('카테고리 개수:', categories.length);
-          
-          // 3. 프로그램 선택은 executeJavaScript 외부에서 처리해야 함
-          // 여기서는 현재 보이는 프로그램 정보만 수집
-          
-          // 중복 제거
-          const uniquePrograms = [];
-          const seen = new Set();
-          programs.forEach(p => {
-            const key = p.name + p.date + (p.time || '');
-            if (!seen.has(key)) {
-              seen.add(key);
-              uniquePrograms.push(p);
-            }
-          });
-          
-          console.log('\\n${dateInfo.date}일 총 파싱 결과:', uniquePrograms.length, '개 프로그램');
-          return uniquePrograms;
+          const categoryList = document.querySelectorAll('#categoryList .swiper-slide:not(.tabLine)');
+          return Array.from(categoryList).map((cat, index) => ({
+            index: index,
+            name: cat.textContent.trim(),
+            isActive: cat.classList.contains('on')
+          }));
         })()
       `);
+      
+      console.log(`${dateInfo.date}일 카테고리 목록:`, categories.map(c => c.name).join(', '));
+      
+      // 각 카테고리별로 프로그램 파싱
+      for (const category of categories) {
+        // 중단 신호 확인
+        if (monitoringAbortController && monitoringAbortController.signal.aborted) {
+          console.log('카테고리 순회 중 중단됨');
+          throw new Error('중단됨');
+        }
+        
+        console.log(`  📂 ${category.name} 카테고리 확인 중...`);
+        
+        // 카테고리 클릭 (이미 활성화되어 있지 않은 경우)
+        if (!category.isActive) {
+          await view.webContents.executeJavaScript(`
+            (function() {
+              const categoryList = document.querySelectorAll('#categoryList .swiper-slide:not(.tabLine)');
+              if (categoryList[${category.index}]) {
+                categoryList[${category.index}].click();
+                return true;
+              }
+              return false;
+            })()
+          `);
+          
+          // 카테고리 전환 대기
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+        
+        // 해당 카테고리의 프로그램 정보 파싱
+        const programsForCategory = await view.webContents.executeJavaScript(`
+          (function() {
+            const programs = [];
+            const selectedPrograms = ${JSON.stringify(selectedPrograms)};
+            
+            console.log('${category.name} 카테고리 프로그램 파싱...');
+            
+            // 현재 보이는 프로그램들 파싱
+            const visiblePrograms = document.querySelectorAll('#productList .swiper-slide:not(.swiper-slide-duplicate) .textBox');
+            console.log('  프로그램 개수:', visiblePrograms.length);
+            
+            visiblePrograms.forEach(textBox => {
+              const titleEl = textBox.querySelector('.tit');
+              if (!titleEl) return;
+              
+              const programName = titleEl.textContent.trim();
+              
+              // 해당 프로그램의 상세 정보 가져오기
+              const descEl = textBox.querySelector('.text');
+              const durationEl = textBox.querySelector('.dlInfoBox dl:nth-child(1) dd');
+              const priceEl = textBox.querySelector('.dlInfoBox dl:nth-child(2) dd');
+              
+              programs.push({
+                name: programName,
+                description: descEl ? descEl.textContent.trim() : '',
+                duration: durationEl ? durationEl.textContent.trim() : '',
+                price: priceEl ? priceEl.textContent.trim() : '',
+                date: '${dateInfo.date}',
+                category: '${category.name}',
+                available: true
+              });
+              console.log('    - ' + programName);
+            });
+            
+            return programs;
+          })()
+        `);
+        
+        allProgramsForDate.push(...programsForCategory);
+        console.log(`    → ${programsForCategory.length}개 프로그램 발견`);
+      }
+      
+      // 중복 제거
+      const uniquePrograms = [];
+      const seen = new Set();
+      allProgramsForDate.forEach(p => {
+        const key = p.name + p.date;
+        if (!seen.has(key)) {
+          seen.add(key);
+          uniquePrograms.push(p);
+        }
+      });
+      
+      const programsForDate = uniquePrograms;
       
       // 결과 저장 (프로그램이 있든 없든 날짜 정보는 저장)
       monthData.dates.push({
@@ -644,7 +673,29 @@ async function checkAvailability(view, selectedPrograms) {
       const programNames = programsForDate.map(p => p.name).join(', ');
       
       if (programsForDate.length > 0) {
-        console.log(`${dateInfo.date}일: ${programsForDate.length}개 프로그램 발견 - [${programNames}]`);
+        // 선택된 프로그램 필터링 정보 표시
+        if (selectedPrograms && selectedPrograms.length > 0) {
+          const selectedCount = programsForDate.filter(p => 
+            selectedPrograms.some(selected => {
+              const selectedLower = selected.toLowerCase().trim();
+              const programLower = p.name.toLowerCase().trim();
+              
+              // 정확히 일치
+              if (programLower === selectedLower) return true;
+              
+              // 언어 버전 처리 - 기본 이름이 정확히 일치해야 함
+              const programBase = programLower.replace(/\s*\([^)]*\)$/, '').trim();
+              const selectedBase = selectedLower.replace(/\s*\([^)]*\)$/, '').trim();
+              if (programBase === selectedBase) return true;
+              
+              return false;
+            })
+          ).length;
+          const skippedCount = programsForDate.length - selectedCount;
+          console.log(`${dateInfo.date}일: ${programsForDate.length}개 프로그램 중 ${selectedCount}개 파싱 예정, ${skippedCount}개 스킵 - [${programNames}]`);
+        } else {
+          console.log(`${dateInfo.date}일: ${programsForDate.length}개 프로그램 발견 - [${programNames}]`);
+        }
         
         // 모든 프로그램에 대해 차량 및 시간대 정보 파싱
         // 먼저 프로그램을 선택하여 thirdDepthBox를 표시
@@ -675,6 +726,39 @@ async function checkAvailability(view, selectedPrograms) {
           if (monitoringAbortController && monitoringAbortController.signal.aborted) {
             console.log('프로그램 순회 중 중단됨');
             throw new Error('중단됨');
+          }
+          
+          // 선택된 프로그램 필터링 (선택된 프로그램이 있는 경우만)
+          if (selectedPrograms && selectedPrograms.length > 0) {
+            // 프로그램명 매칭 확인 
+            const isSelected = selectedPrograms.some(selected => {
+              const selectedLower = selected.toLowerCase().trim();
+              const programLower = program.name.toLowerCase().trim();
+              
+              // 1. 정확히 일치
+              if (programLower === selectedLower) return true;
+              
+              // 2. 언어 버전 처리 - 기본 프로그램명이 정확히 일치해야 함
+              // 예: "Starter Pack" 선택 시 → "Starter Pack (KOR)", "Starter Pack (ENG)" 매칭
+              //     하지만 "i Starter Pack"은 매칭하지 않음
+              // 예: "M Town" 선택 시 → "M Town (KOR)", "M Town (ENG)" 매칭
+              //     하지만 "M Town Driving"은 다른 프로그램
+              
+              // 프로그램명에서 (KOR), (ENG) 등 언어 표시 제거
+              const programBase = programLower.replace(/\s*\([^)]*\)$/, '').trim();
+              const selectedBase = selectedLower.replace(/\s*\([^)]*\)$/, '').trim();
+              
+              // 기본 이름이 정확히 일치해야 함 (부분 매칭 X)
+              if (programBase === selectedBase) return true;
+              
+              return false;
+            });
+            
+            if (!isSelected) {
+              console.log(`⏭️ [${program.name}] 스킵 (선택되지 않음)`);
+              programIndex++;
+              continue; // 선택되지 않은 프로그램은 스킵
+            }
           }
           
           console.log(`\n📌 프로그램 상세 정보 확인: ${program.name}`);
@@ -1556,7 +1640,37 @@ async function checkAvailability(view, selectedPrograms) {
     console.log('='.repeat(60));
     console.log(`확인한 달: ${allMonthsData.map(m => m.month).join(', ')}`);
     console.log(`총 ${allProgramsInfo.length}개 날짜 확인`);
-    console.log(`총 ${totalPrograms}개 프로그램 발견`);
+    
+    // 선택된 프로그램 필터링 정보
+    if (selectedPrograms && selectedPrograms.length > 0) {
+      console.log(`선택 프로그램: ${selectedPrograms.join(', ')}`);
+      
+      // 실제로 파싱된 프로그램 수 계산
+      const parsedPrograms = allProgramsInfo.reduce((sum, day) => {
+        return sum + day.programs.filter(p => 
+          selectedPrograms.some(selected => {
+            const selectedLower = selected.toLowerCase().trim();
+            const programLower = p.name.toLowerCase().trim();
+            
+            // 정확히 일치
+            if (programLower === selectedLower) return true;
+            
+            // 언어 버전 처리 - 기본 이름이 정확히 일치해야 함
+            const programBase = programLower.replace(/\s*\([^)]*\)$/, '').trim();
+            const selectedBase = selectedLower.replace(/\s*\([^)]*\)$/, '').trim();
+            if (programBase === selectedBase) return true;
+            
+            return false;
+          })
+        ).length;
+      }, 0);
+      
+      const skippedPrograms = totalPrograms - parsedPrograms;
+      console.log(`총 ${totalPrograms}개 프로그램 중 ${parsedPrograms}개 파싱, ${skippedPrograms}개 스킵`);
+    } else {
+      console.log(`총 ${totalPrograms}개 프로그램 발견 (전체 파싱)`);
+    }
+    
     console.log(`예약 가능한 프로그램: ${availableProgramsCount}개`);
     if (allProgramNames.length > 0) {
       console.log(`프로그램 종류: ${allProgramNames.join(', ')}`);

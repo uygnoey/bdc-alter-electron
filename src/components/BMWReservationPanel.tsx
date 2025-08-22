@@ -80,11 +80,9 @@ export default function BMWReservationPanel({
     setLastCheck(new Date())
     
     try {
-      // 선택된 프로그램 정보 준비
-      const selectedProgramData = programs.filter(p => selectedPrograms.includes(p.name))
-      
+      // 선택된 프로그램명 배열 전달 (문자열 배열)
       const result = await window.electronAPI.bmw.monitor({ 
-        selectedPrograms: selectedProgramData 
+        selectedPrograms: selectedPrograms  // 선택된 프로그램명들 
       })
       
       // 이 파싱이 여전히 유효한지 확인 (중지되었거나 새 파싱이 시작되었을 수 있음)
