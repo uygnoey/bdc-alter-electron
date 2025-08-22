@@ -742,46 +742,225 @@ async function checkAvailability(view, selectedPrograms) {
             
             await new Promise(resolve => setTimeout(resolve, 1500));
             
-            // 차량 및 시간대 정보 파싱
+            // 모든 브랜드와 시리즈별 차량 및 시간대 정보 파싱
+            console.log('🔄 모든 브랜드와 시리즈 순회 시작...');
+            const allVehicleData = [];
+            
+            // 먼저 thirdDepthBox가 표시되는지 확인
+            const thirdBoxCheck = await view.webContents.executeJavaScript(`
+              (function() {
+                const thirdDepthBox = document.querySelector('#thirdDepthBox');
+                if (!thirdDepthBox || thirdDepthBox.style.display === 'none') {
+                  return false;
+                }
+                return true;
+              })()
+            `);
+            
+            if (!thirdBoxCheck) {
+              console.log('❌ thirdDepthBox를 찾을 수 없거나 숨겨져 있음');
+            } else {
+              // 모든 브랜드 가져오기
+              const brands = await view.webContents.executeJavaScript(`
+                (function() {
+                  const brandBox = document.querySelector('#brandBox');
+                  if (!brandBox) return [];
+                  
+                  const brandLinks = brandBox.querySelectorAll('a');
+                  return Array.from(brandLinks).map(link => ({
+                    name: link.textContent.trim(),
+                    isActive: link.classList.contains('on')
+                  }));
+                })()
+              `);
+              
+              console.log('🏷️ 발견된 브랜드:', brands.map(b => b.name).join(', '));
+              
+              // 각 브랜드별로 처리
+              for (const brand of brands) {
+                console.log(`\n🚗 ${brand.name} 브랜드 선택 중...`);
+                
+                // 브랜드 클릭
+                await view.webContents.executeJavaScript(`
+                  (function() {
+                    const brandBox = document.querySelector('#brandBox');
+                    if (!brandBox) return false;
+                    
+                    const brandLink = Array.from(brandBox.querySelectorAll('a')).find(a => 
+                      a.textContent.trim() === '${brand.name}'
+                    );
+                    
+                    if (brandLink && !brandLink.classList.contains('on')) {
+                      brandLink.click();
+                      return true;
+                    }
+                    return false;
+                  })()
+                `);
+                
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // 해당 브랜드의 모든 시리즈 가져오기
+                const seriesList = await view.webContents.executeJavaScript(`
+                  (function() {
+                    const seriesTabBox = document.querySelector('#seriesTabBox');
+                    if (!seriesTabBox) return [];
+                    
+                    const seriesLinks = seriesTabBox.querySelectorAll('a');
+                    return Array.from(seriesLinks).map(link => ({
+                      name: link.textContent.trim(),
+                      isActive: link.classList.contains('on')
+                    }));
+                  })()
+                `);
+                
+                console.log(`  📂 ${brand.name} 시리즈:`, seriesList.map(s => s.name).join(', '));
+                
+                // 각 시리즈별로 처리
+                for (const series of seriesList) {
+                  console.log(`    📍 ${series.name} 시리즈 확인 중...`);
+                  
+                  // 시리즈 클릭
+                  await view.webContents.executeJavaScript(`
+                    (function() {
+                      const seriesTabBox = document.querySelector('#seriesTabBox');
+                      if (!seriesTabBox) return false;
+                      
+                      const seriesLink = Array.from(seriesTabBox.querySelectorAll('a')).find(a => 
+                        a.textContent.trim() === '${series.name}'
+                      );
+                      
+                      if (seriesLink && !seriesLink.classList.contains('on')) {
+                        seriesLink.click();
+                        return true;
+                      }
+                      return false;
+                    })()
+                  `);
+                  
+                  await new Promise(resolve => setTimeout(resolve, 800));
+                  
+                  // 현재 브랜드/시리즈의 차량 및 시간대 정보 파싱
+                  const detailInfo = await view.webContents.executeJavaScript(`
+                    (function() {
+                      const thirdDepthBox = document.querySelector('#thirdDepthBox');
+                      if (!thirdDepthBox || thirdDepthBox.style.display === 'none') {
+                        return null;
+                      }
+                      
+                      // 차량 정보 파싱
+                      const vehicles = [];
+                      const carList = thirdDepthBox.querySelectorAll('#carList .swiper-slide');
+                      
+                      carList.forEach(car => {
+                        // 중복 슬라이드 제외
+                        if (car.classList.contains('swiper-slide-duplicate')) return;
+                        
+                        const subTit = car.querySelector('.subTit')?.textContent.trim();
+                        const model = car.querySelector('.tit')?.textContent.trim();
+                        const priceText = car.querySelector('.infoIco .text')?.textContent.trim();
+                        
+                        if (model) {
+                          vehicles.push({
+                            brand: '${brand.name}',
+                            series: subTit || '${series.name}',
+                            model: model,
+                            price: priceText || ''
+                          });
+                        }
+                      });
+                      
+                      // 시간대 정보 파싱
+                      const timeSlots = [];
+                      const timeList = document.querySelectorAll('#orderTimeList a');
+                      
+                      timeList.forEach(timeSlot => {
+                        const timeText = timeSlot.querySelector('.time')?.textContent.trim();
+                        const seatText = timeSlot.querySelector('.seat')?.textContent.trim();
+                        const isDisabled = timeSlot.classList.contains('disabled');
+                        
+                        if (timeText) {
+                          let remainingSeats = 0;
+                          if (seatText && !seatText.includes('매진')) {
+                            const match = seatText.match(/(\\d+)석/);
+                            remainingSeats = match ? parseInt(match[1]) : 0;
+                          }
+                          
+                          timeSlots.push({
+                            time: timeText,
+                            remainingSeats: remainingSeats,
+                            available: !isDisabled && remainingSeats > 0,
+                            fullText: seatText || ''
+                          });
+                        }
+                      });
+                      
+                      return {
+                        brand: '${brand.name}',
+                        series: '${series.name}',
+                        vehicles: vehicles,
+                        timeSlots: timeSlots
+                      };
+                    })()
+                  `);
+                  
+                  if (detailInfo) {
+                    allVehicleData.push(detailInfo);
+                    console.log(`      ✅ ${brand.name} ${series.name}: ${detailInfo.vehicles.length}대 차량, ${detailInfo.timeSlots.length}개 시간대`);
+                    
+                    // 예약 가능한 시간대가 있으면 표시
+                    const availableCount = detailInfo.timeSlots.filter(t => t.available).length;
+                    if (availableCount > 0) {
+                      console.log(`        🎯 예약 가능: ${availableCount}개 시간대`);
+                    }
+                  }
+                }
+              }
+              
+              // 전체 결과 요약
+              if (allVehicleData.length > 0) {
+                console.log('\n📊 전체 브랜드/시리즈 스캔 결과:');
+                let totalVehicles = 0;
+                let totalAvailableSlots = 0;
+                
+                allVehicleData.forEach(data => {
+                  totalVehicles += data.vehicles.length;
+                  const available = data.timeSlots.filter(t => t.available).length;
+                  totalAvailableSlots += available;
+                  
+                  if (available > 0) {
+                    console.log(`  ✅ ${data.brand} ${data.series}: ${available}개 예약 가능`);
+                  }
+                });
+                
+                console.log(`\n  총 차량: ${totalVehicles}대`);
+                console.log(`  총 예약 가능 슬롯: ${totalAvailableSlots}개`);
+                
+                // 프로그램에 전체 데이터 저장
+                program.allVehicleData = allVehicleData;
+                program.hasMultipleBrands = true;
+              }
+            }
+            
+            // 기존 단일 브랜드/시리즈 파싱 (폴백)
             const detailInfo = await view.webContents.executeJavaScript(`
               (function() {
-                // 모든 depth box 확인
-                const secondDepth = document.querySelector('#secondDepthBox');
-                const thirdDepth = document.querySelector('#thirdDepthBox');
-                
-                console.log('secondDepthBox display:', secondDepth ? secondDepth.style.display : 'not found');
-                console.log('thirdDepthBox display:', thirdDepth ? thirdDepth.style.display : 'not found');
-                
                 const thirdDepthBox = document.querySelector('#thirdDepthBox');
-                if (!thirdDepthBox) {
-                  console.log('thirdDepthBox 요소가 없음');
+                if (!thirdDepthBox || thirdDepthBox.style.display === 'none') {
                   return null;
                 }
                 
-                if (thirdDepthBox.style.display === 'none') {
-                  console.log('thirdDepthBox가 숨겨져 있음');
-                  return null;
-                }
-                
-                console.log('✅ thirdDepthBox 발견 - 차량 및 시간대 정보 파싱');
-                
-                // 차량 정보 파싱
+                // 현재 활성 브랜드/시리즈의 차량 정보만 파싱
                 const vehicles = [];
                 const carList = thirdDepthBox.querySelectorAll('#carList .swiper-slide');
-                console.log('차량 슬라이드 수:', carList.length);
                 
-                // 브랜드 정보 확인
                 const brandBox = thirdDepthBox.querySelector('#brandBox');
                 const activeBrand = brandBox ? brandBox.querySelector('a.on')?.textContent.trim() : 'BMW';
-                console.log('활성 브랜드:', activeBrand);
                 
-                // 시리즈 정보 확인
-                const seriesBox = thirdDepthBox.querySelector('#seriesBox');
+                const seriesBox = thirdDepthBox.querySelector('#seriesTabBox');
                 const activeSeries = seriesBox ? seriesBox.querySelector('a.on')?.textContent.trim() : '';
-                console.log('활성 시리즈:', activeSeries);
                 
                 carList.forEach(car => {
-                  // 중복 슬라이드 제외
                   if (car.classList.contains('swiper-slide-duplicate')) return;
                   
                   const series = car.querySelector('.subTit')?.textContent.trim();
@@ -795,7 +974,6 @@ async function checkAvailability(view, selectedPrograms) {
                       model: model,
                       price: priceText || ''
                     });
-                    console.log('  🚗 차량:', activeBrand, series || activeSeries, model, '-', priceText);
                   }
                 });
                 
