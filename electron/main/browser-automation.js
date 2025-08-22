@@ -939,38 +939,36 @@ async function checkAvailability(view, selectedPrograms) {
                       }
                       
                       // 현재 활성 차량을 실제로 클릭하여 선택 (시간대 업데이트 트리거)
+                      // "자세히 보기"가 아니라 차량 자체를 클릭해야 함
                       const carClicked = await view.webContents.executeJavaScript(`
                         (function() {
                           const activeCar = document.querySelector('#carList .swiper-slide-active:not(.swiper-slide-duplicate)');
-                          if (!activeCar) return false;
+                          if (!activeCar) return 'no-active-car';
                           
-                          // 차량 클릭 가능한 요소 찾기
-                          const clickableElement = activeCar.querySelector('a') || activeCar.querySelector('button') || activeCar;
+                          // 차량 자체를 클릭 (자세히 보기 버튼이 아님)
+                          // carImg 또는 textBox 영역 클릭
+                          const carImg = activeCar.querySelector('.carImg');
+                          const textBox = activeCar.querySelector('.textBox');
                           
-                          // 차량 선택 이벤트 트리거
-                          if (clickableElement) {
-                            // 직접 클릭
-                            clickableElement.click();
-                            
-                            // 또는 getCarDetail 함수가 있으면 사용
-                            const detailLink = activeCar.querySelector('a[onclick*="getCarDetail"]');
-                            if (detailLink) {
-                              const onclickAttr = detailLink.getAttribute('onclick');
-                              if (onclickAttr) {
-                                // getCarDetail('146') 형태에서 ID 추출
-                                const match = onclickAttr.match(/getCarDetail\\('(\\d+)'\\)/);
-                                if (match && match[1]) {
-                                  if (typeof getCarDetail === 'function') {
-                                    getCarDetail(match[1]);
-                                    return 'getCarDetail';
-                                  }
-                                }
-                              }
+                          if (carImg) {
+                            carImg.click();
+                            return 'car-image-clicked';
+                          } else if (textBox) {
+                            // 자세히 보기 버튼은 제외하고 textBox 클릭
+                            const titleElement = textBox.querySelector('.tit');
+                            if (titleElement) {
+                              titleElement.click();
+                              return 'car-title-clicked';
                             }
-                            
-                            return 'clicked';
+                            textBox.click();
+                            return 'textbox-clicked';
+                          } else if (activeCar) {
+                            // 전체 슬라이드 클릭
+                            activeCar.click();
+                            return 'slide-clicked';
                           }
-                          return false;
+                          
+                          return 'no-click';
                         })()
                       `);
                       

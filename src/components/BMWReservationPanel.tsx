@@ -118,11 +118,15 @@ export default function BMWReservationPanel({
     setStatus('로그인 중...')
     console.log('🔐 모니터링 시작 - 로그인 시도:', { username: credentials.username })
     
+    // 먼저 isRunning을 true로 설정 (버튼 즉시 변경)
+    setIsRunning(true)
+    
     try {
       const result = await window.electronAPI.bmw.initialize(credentials)
       
       if (!result.success) {
         setStatus(`❌ 로그인 실패: ${result.message || '알 수 없는 오류'}`)
+        setIsRunning(false) // 실패 시 다시 false로
         return
       }
       
@@ -142,11 +146,11 @@ export default function BMWReservationPanel({
       }, checkInterval * 1000)
       
       setIntervalId(id)
-      setIsRunning(true)
       setStatus(`🔄 ${programNames} 모니터링 중... (${checkInterval}초마다 확인)`)
       
     } catch (error) {
       setStatus(`❌ 오류: ${error}`)
+      setIsRunning(false) // 에러 시 다시 false로
     }
   }
 
