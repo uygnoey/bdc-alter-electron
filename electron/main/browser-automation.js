@@ -665,6 +665,7 @@ async function checkAvailability(view, selectedPrograms) {
       monthData.dates.push({
         date: dateInfo.date,
         dayCode: dateInfo.dayCode,
+        monthYear: currentMonthInfo.month, // 년월 정보 추가 (예: "2025년 08월")
         programs: programsForDate,
         hasPrograms: programsForDate.length > 0
       });

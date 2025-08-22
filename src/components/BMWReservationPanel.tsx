@@ -498,20 +498,48 @@ export default function BMWReservationPanel({
               예약 가능한 날짜 및 프로그램
             </div>
             <div className="space-y-2">
-              {availableSlots.map((slot, idx) => (
-                <div key={idx} className="text-sm border-b border-green-100 pb-2 last:border-b-0">
-                  <div className="font-medium text-green-700">
-                    📅 {slot.date}일
-                  </div>
-                  {slot.programs && slot.programs.length > 0 ? (
+              {availableSlots.map((slot, idx) => {
+                // 선택된 프로그램이 있을 경우 필터링
+                const filteredPrograms = selectedPrograms.length > 0 
+                  ? slot.programs?.filter(p => {
+                      return selectedPrograms.some(selected => {
+                        const selectedLower = selected.toLowerCase().trim();
+                        const programLower = p.name.toLowerCase().trim();
+                        
+                        // 정확히 일치
+                        if (programLower === selectedLower) return true;
+                        
+                        // 언어 버전 처리
+                        const programBase = programLower.replace(/\s*\([^)]*\)$/, '').trim();
+                        const selectedBase = selectedLower.replace(/\s*\([^)]*\)$/, '').trim();
+                        if (programBase === selectedBase) return true;
+                        
+                        return false;
+                      });
+                    }) || []
+                  : slot.programs || [];
+                
+                // 필터링된 프로그램이 없으면 이 날짜는 표시하지 않음
+                if (filteredPrograms.length === 0) return null;
+                
+                // 날짜를 년월일 형식으로 변환
+                // monthYear는 "2025년 08월" 형식, date는 "23" 형식
+                const formattedDate = slot.monthYear 
+                  ? `${slot.monthYear} ${slot.date}일`
+                  : `${slot.date}일`;
+                
+                return (
+                  <div key={idx} className="text-sm border-b border-green-100 pb-2 last:border-b-0">
+                    <div className="font-medium text-green-700">
+                      📅 {formattedDate}
+                    </div>
                     <div className="ml-4 mt-1 space-y-2">
-                      {slot.programs.map((program, pidx) => (
+                      {filteredPrograms.map((program, pidx) => (
                         <div key={pidx} className="text-xs">
                           <div className="text-gray-700 font-medium">
                             • {program.name}
                             {program.duration && ` (${program.duration})`}
                             {program.price && ` - ${program.price}`}
-                            {program.isSelected && ' ✅'}
                           </div>
                           
                           {/* 차량 정보 표시 */}
@@ -545,13 +573,9 @@ export default function BMWReservationPanel({
                         </div>
                       ))}
                     </div>
-                  ) : (
-                    <div className="ml-4 mt-1 text-xs text-gray-500">
-                      프로그램 정보 없음
-                    </div>
-                  )}
-                </div>
-              ))}
+                  </div>
+                );
+              }).filter(Boolean)}
             </div>
           </div>
         )}
