@@ -421,12 +421,30 @@ export default function BMWReservationPanel({
           <div className="p-3 bg-green-50 border border-green-200 rounded">
             <div className="flex items-center gap-2 text-sm font-medium text-green-700 mb-2">
               <CheckCircle className="w-4 h-4" />
-              예약 가능한 슬롯
+              예약 가능한 날짜 및 프로그램
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               {availableSlots.map((slot, idx) => (
-                <div key={idx} className="text-sm">
-                  📅 {slot.date}
+                <div key={idx} className="text-sm border-b border-green-100 pb-2 last:border-b-0">
+                  <div className="font-medium text-green-700">
+                    📅 {slot.date}일
+                  </div>
+                  {slot.programs && slot.programs.length > 0 ? (
+                    <div className="ml-4 mt-1 space-y-1">
+                      {slot.programs.map((program, pidx) => (
+                        <div key={pidx} className="text-xs text-gray-600">
+                          • {program.name}
+                          {program.duration && ` (${program.duration})`}
+                          {program.price && ` - ${program.price}`}
+                          {program.isSelected && ' ✓'}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="ml-4 mt-1 text-xs text-gray-500">
+                      프로그램 정보 없음
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

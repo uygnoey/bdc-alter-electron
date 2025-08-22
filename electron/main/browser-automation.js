@@ -468,74 +468,107 @@ async function checkAvailability(view, selectedPrograms) {
           const programs = [];
           const selectedPrograms = ${JSON.stringify(selectedPrograms)};
           
-          console.log('선택된 프로그램 목록:', selectedPrograms);
           console.log('날짜 ${dateInfo.date}일의 프로그램 정보 파싱 시작...');
           
-          // 1. 먼저 카테고리 목록 확인
-          const categories = document.querySelectorAll('#categoryList .swiper-slide');
-          console.log('카테고리 개수:', categories.length);
+          // secondDepthBox 내부 확인
+          const secondDepthBox = document.querySelector('#secondDepthBox');
+          if (!secondDepthBox) {
+            console.log('secondDepthBox를 찾을 수 없음');
+            return [];
+          }
           
-          // 각 카테고리 순회
-          for (let catIndex = 0; catIndex < categories.length; catIndex++) {
-            const category = categories[catIndex];
-            const categoryName = category.textContent.trim();
-            const categoryCode = category.getAttribute('data-category-code');
+          // 1. 먼저 현재 보이는 프로그램들 모두 파싱 (중복 제거)
+          const visiblePrograms = document.querySelectorAll('#productList .swiper-slide:not(.swiper-slide-duplicate) .textBox');
+          console.log('현재 보이는 프로그램 개수:', visiblePrograms.length);
+          
+          visiblePrograms.forEach(textBox => {
+            const titleEl = textBox.querySelector('.tit');
+            if (!titleEl) return;
             
-            console.log('\\n=== 카테고리:', categoryName, '(code:', categoryCode, ') ===');
+            const programName = titleEl.textContent.trim();
+            console.log('프로그램 발견:', programName);
             
-            // 카테고리가 활성화되어 있지 않으면 클릭
-            if (!category.classList.contains('swiper-slide-active')) {
-              console.log('카테고리 전환:', categoryName);
-              category.click();
-              await new Promise(resolve => setTimeout(resolve, 1000));
+            // 해당 프로그램의 상세 정보 가져오기
+            const descEl = textBox.querySelector('.text');
+            const durationEl = textBox.querySelector('.dlInfoBox dl:nth-child(1) dd');
+            const priceEl = textBox.querySelector('.dlInfoBox dl:nth-child(2) dd');
+            
+            // 선택된 프로그램과 매칭 확인 (선택된 프로그램이 있는 경우만)
+            let isSelected = false;
+            if (selectedPrograms && selectedPrograms.length > 0) {
+              isSelected = selectedPrograms.some(selected => 
+                programName.toLowerCase().includes(selected.toLowerCase()) || 
+                selected.toLowerCase().includes(programName.toLowerCase())
+              );
             }
             
-            // 2. 해당 카테고리의 프로그램들 파싱
-            // Swiper로 구성된 프로그램 목록 확인
-            const productSlides = document.querySelectorAll('#productList .swiper-slide:not(.swiper-slide-duplicate)');
-            console.log(categoryName + ' 카테고리의 프로그램 슬라이드 개수:', productSlides.length);
-            
-            // 각 슬라이드의 프로그램 정보 파싱
-            for (let slideIndex = 0; slideIndex < productSlides.length; slideIndex++) {
-              const slide = productSlides[slideIndex];
+            programs.push({
+              name: programName,
+              description: descEl ? descEl.textContent.trim() : '',
+              duration: durationEl ? durationEl.textContent.trim() : '',
+              price: priceEl ? priceEl.textContent.trim() : '',
+              date: '${dateInfo.date}',
+              available: true,
+              isSelected: isSelected  // 선택된 프로그램인지 표시
+            });
+            console.log('  - ' + programName + (isSelected ? ' ✅' : ''));
+          });
+          
+          // 2. 카테고리가 여러 개인 경우 처리
+          const categories = document.querySelectorAll('#categoryList .swiper-slide:not(.tabLine)');
+          console.log('카테고리 개수:', categories.length);
+          
+          if (categories.length > 1) {
+            // 각 카테고리 순회
+            for (let catIndex = 0; catIndex < categories.length; catIndex++) {
+              const category = categories[catIndex];
+              const categoryName = category.textContent.trim();
               
-              // 현재 활성 슬라이드가 아니면 다음 버튼 클릭
-              if (slideIndex > 0) {
-                const nextBtn = document.querySelector('.swiper-button-next.product-swiper-control-button:not(.swiper-button-lock)');
-                if (nextBtn) {
-                  console.log('다음 프로그램으로 이동...');
-                  nextBtn.click();
-                  await new Promise(resolve => setTimeout(resolve, 500));
-                }
-              }
+              console.log('\\n카테고리 확인:', categoryName);
               
-              // 프로그램 정보 추출
-              const titleEl = slide.querySelector('.textBox .tit');
-              const descEl = slide.querySelector('.textBox .text');
-              const timeEl = slide.querySelector('.dlInfoBox dd:first-of-type');
-              const priceEl = slide.querySelector('.dlInfoBox dd:last-of-type');
-              
-              if (titleEl) {
-                const programName = titleEl.textContent.trim();
-                console.log('  프로그램 발견:', programName);
+              // 카테고리가 활성화되어 있지 않으면 클릭
+              if (!category.classList.contains('swiper-slide-active')) {
+                console.log('카테고리 전환:', categoryName);
+                category.click();
+                await new Promise(resolve => setTimeout(resolve, 1500));
                 
-                // 선택된 프로그램과 매칭 확인
-                const isSelected = selectedPrograms.some(selected => 
-                  programName.includes(selected) || selected.includes(programName)
-                );
+                // 전환 후 프로그램 파싱
+                const categoryPrograms = document.querySelectorAll('#productList .swiper-slide:not(.swiper-slide-duplicate) .textBox');
                 
-                if (isSelected) {
+                categoryPrograms.forEach(textBox => {
+                  const titleEl = textBox.querySelector('.tit');
+                  if (!titleEl) return;
+                  
+                  const programName = titleEl.textContent.trim();
+                  
+                  // 이미 추가된 프로그램인지 확인
+                  const alreadyAdded = programs.some(p => p.name === programName && p.date === '${dateInfo.date}');
+                  if (alreadyAdded) return;
+                  
+                  const descEl = textBox.querySelector('.text');
+                  const durationEl = textBox.querySelector('.dlInfoBox dl:nth-child(1) dd');
+                  const priceEl = textBox.querySelector('.dlInfoBox dl:nth-child(2) dd');
+                  
+                  let isSelected = false;
+                  if (selectedPrograms && selectedPrograms.length > 0) {
+                    isSelected = selectedPrograms.some(selected => 
+                      programName.toLowerCase().includes(selected.toLowerCase()) || 
+                      selected.toLowerCase().includes(programName.toLowerCase())
+                    );
+                  }
+                  
                   programs.push({
                     name: programName,
                     category: categoryName,
                     description: descEl ? descEl.textContent.trim() : '',
-                    duration: timeEl ? timeEl.textContent.trim() : '',
+                    duration: durationEl ? durationEl.textContent.trim() : '',
                     price: priceEl ? priceEl.textContent.trim() : '',
                     date: '${dateInfo.date}',
-                    available: true
+                    available: true,
+                    isSelected: isSelected
                   });
-                  console.log('    ✅ 매칭됨!');
-                }
+                  console.log('  - [' + categoryName + '] ' + programName + (isSelected ? ' ✅' : ''));
+                });
               }
             }
           }
@@ -581,27 +614,37 @@ async function checkAvailability(view, selectedPrograms) {
         })()
       `);
       
-      // 결과 저장
-      if (programsForDate.length > 0) {
-        allProgramsInfo.push({
-          date: dateInfo.date,
-          dayCode: dateInfo.dayCode,
-          programs: programsForDate
-        });
-      }
+      // 결과 저장 (프로그램이 있든 없든 날짜 정보는 저장)
+      allProgramsInfo.push({
+        date: dateInfo.date,
+        dayCode: dateInfo.dayCode,
+        programs: programsForDate,
+        hasPrograms: programsForDate.length > 0
+      });
       
-      console.log(`${dateInfo.date}일: ${programsForDate.length}개 프로그램 발견`);
+      // 프로그램명 리스트 생성
+      const programNames = programsForDate.map(p => p.name).join(', ');
+      
+      if (programsForDate.length > 0) {
+        console.log(`${dateInfo.date}일: ${programsForDate.length}개 프로그램 발견 - [${programNames}]`);
+      } else {
+        console.log(`${dateInfo.date}일: 프로그램 없음`);
+      }
     }
     
     // 3. 전체 결과 정리
     const totalPrograms = allProgramsInfo.reduce((sum, day) => sum + day.programs.length, 0);
     
+    // 전체 프로그램명 리스트
+    const allProgramNames = [...new Set(allProgramsInfo.flatMap(day => day.programs.map(p => p.name)))];
+    
     return {
       hasAvailability: totalPrograms > 0,
       message: totalPrograms > 0 
-        ? `총 ${totalPrograms}개의 예약 가능한 프로그램을 찾았습니다!` 
-        : '선택한 프로그램이 예약 가능한 날짜에 없습니다.',
+        ? `총 ${totalPrograms}개의 예약 가능한 프로그램을 찾았습니다! [${allProgramNames.join(', ')}]` 
+        : '예약 가능한 프로그램이 없습니다.',
       count: totalPrograms,
+      programNames: allProgramNames,
       slots: allProgramsInfo,
       availableDates: availableDates,
       timestamp: new Date().toISOString()
