@@ -467,50 +467,7 @@ async function checkAvailability(view, selectedPrograms) {
       
       // 이 달의 모든 날짜를 순회
       for (const dateInfo of availableDates) {
-      console.log(`\n📆 ${currentMonthInfo.month}의 ${dateInfo.date}일 확인 중...`);
-      
-      // 현재 캘린더가 올바른 월인지 확인
-      const currentCalendarMonth = await view.webContents.executeJavaScript(`
-        (function() {
-          const monthLabel = document.querySelector('#calendarLabel');
-          return monthLabel ? monthLabel.textContent.trim() : '';
-        })()
-      `);
-      
-      // 월이 다르면 올바른 월로 이동
-      if (currentCalendarMonth !== currentMonthInfo.month) {
-        console.log(`캘린더가 ${currentCalendarMonth}로 되어있음. ${currentMonthInfo.month}로 다시 이동...`);
-        
-        // 다음/이전 버튼으로 올바른 월로 이동
-        if (currentCalendarMonth < currentMonthInfo.month) {
-          // 다음 달로 이동 필요
-          await view.webContents.executeJavaScript(`
-            (function() {
-              const nextBtn = document.querySelector('#nextCalendar');
-              if (nextBtn) {
-                nextBtn.click();
-                return true;
-              }
-              return false;
-            })()
-          `);
-        } else {
-          // 이전 달로 이동 필요
-          await view.webContents.executeJavaScript(`
-            (function() {
-              const prevBtn = document.querySelector('#prevCalendar');
-              if (prevBtn) {
-                prevBtn.click();
-                return true;
-              }
-              return false;
-            })()
-          `);
-        }
-        
-        // 월 변경 대기
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
+      console.log(`\n📆 ${dateInfo.date}일 확인 중...`);
       
       // 날짜 클릭
       const dateClicked = await view.webContents.executeJavaScript(`
@@ -942,39 +899,8 @@ async function checkAvailability(view, selectedPrograms) {
                 console.log('  - ⚠️ 예약 가능한 시간대 없음 (모두 매진)');
               }
               
-              // 돌아가기 버튼 클릭
-              const backClicked = await view.webContents.executeJavaScript(`
-                (function() {
-                  // 여러 종류의 돌아가기 버튼 찾기
-                  const selectors = [
-                    'button[onclick*="back"]',
-                    'a[onclick*="back"]', 
-                    '.btnBack',
-                    '.btnPrev',
-                    'button[onclick*="prev"]',
-                    'a.btn[onclick*="cancel"]'
-                  ];
-                  
-                  for (const selector of selectors) {
-                    const backButton = document.querySelector(selector);
-                    if (backButton) {
-                      console.log('돌아가기 버튼 클릭:', selector);
-                      backButton.click();
-                      return true;
-                    }
-                  }
-                  
-                  console.log('돌아가기 버튼을 찾을 수 없음');
-                  return false;
-                })()
-              `);
-              
-              if (backClicked) {
-                console.log(`✅ [${program.name}] 돌아가기 완료, 다음 프로그램 처리 대기`);
-                await new Promise(resolve => setTimeout(resolve, 1500));
-              } else {
-                console.log(`⚠️ [${program.name}] 돌아가기 버튼을 찾을 수 없음`);
-              }
+              // 다음 프로그램 처리를 위해 바로 진행
+              console.log(`✅ [${program.name}] 파싱 완료`);
             } else {
               console.log(`❌ [${program.name}] thirdDepthBox를 찾을 수 없음 - 상세 정보 파싱 실패`);
             }
