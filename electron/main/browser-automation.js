@@ -558,6 +558,12 @@ async function checkAvailability(view, selectedPrograms) {
           // 프로그램 선택 (selectProduct 함수 호출)
           const clicked = await view.webContents.executeJavaScript(`
             (function() {
+              // 현재 선택된 프로그램 확인
+              const currentSelected = document.querySelector('#productList .swiper-slide.on .tit');
+              if (currentSelected) {
+                console.log('현재 선택된 프로그램:', currentSelected.textContent.trim());
+              }
+              
               // 프로그램 찾기
               const slides = document.querySelectorAll('#productList .swiper-slide:not(.swiper-slide-duplicate)');
               console.log('프로그램 슬라이드 수:', slides.length);
@@ -567,11 +573,21 @@ async function checkAvailability(view, selectedPrograms) {
                 if (titleEl && titleEl.textContent.trim() === '${program.name}') {
                   console.log('프로그램 발견:', '${program.name}');
                   
+                  // 이미 선택된 프로그램인지 확인
+                  const isAlreadySelected = slide.classList.contains('on') || slide.classList.contains('active');
+                  if (isAlreadySelected) {
+                    console.log('이미 선택된 프로그램이지만 다시 클릭하여 업데이트');
+                  }
+                  
                   // selectProduct 함수를 호출하는 요소 찾기
                   const selectButtons = slide.querySelectorAll('a[onclick*="selectProduct"], button[onclick*="selectProduct"], input[onclick*="selectProduct"]');
                   console.log('selectProduct 버튼 수:', selectButtons.length);
                   
                   if (selectButtons.length > 0) {
+                    const onclick = selectButtons[0].getAttribute('onclick');
+                    console.log('onclick 속성:', onclick);
+                    
+                    // 프로그램 선택 버튼 클릭 (항상 클릭하여 thirdDepthBox 업데이트)
                     console.log('프로그램 선택 버튼 클릭!');
                     selectButtons[0].click();
                     return true;
@@ -580,7 +596,8 @@ async function checkAvailability(view, selectedPrograms) {
                   // 라디오 버튼이나 체크박스가 있는지 확인
                   const radioOrCheckbox = slide.querySelector('input[type="radio"], input[type="checkbox"]');
                   if (radioOrCheckbox) {
-                    console.log('라디오/체크박스 클릭');
+                    console.log('라디오/체크박스 발견');
+                    // 체크 상태와 관계없이 클릭
                     radioOrCheckbox.click();
                     
                     // selectProduct 함수를 직접 호출해야 할 수도 있음
@@ -611,9 +628,9 @@ async function checkAvailability(view, selectedPrograms) {
           `);
           
           if (clicked) {
-            console.log(`✅ [${program.name}] 프로그램 선택 성공, thirdDepthBox 로드 대기 중...`);
-            // thirdDepthBox 로드 대기
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            console.log(`✅ [${program.name}] 프로그램 선택 성공, thirdDepthBox 업데이트 대기 중...`);
+            // thirdDepthBox 업데이트 대기 (프로그램 전환 시 시간이 필요함)
+            await new Promise(resolve => setTimeout(resolve, 2500));
             
             // 차량 및 시간대 정보 파싱
             const detailInfo = await view.webContents.executeJavaScript(`
