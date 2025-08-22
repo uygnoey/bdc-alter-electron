@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Car, User, Calendar, PlayCircle, StopCircle, CheckCircle, AlertCircle, RefreshCw, Clock } from 'lucide-react'
 
 // Type definitions are in src/types/electron.d.ts
@@ -27,6 +27,8 @@ export default function BMWReservationPanel({
 }: BMWReservationPanelProps) {
   const [credentials, setCredentials] = useState({ username: '', password: '' })
   const [isRunning, setIsRunning] = useState(false)
+  const isRunningRef = useRef(false) // while 루프에서 사용할 ref
+  const currentParsingIdRef = useRef(0) // 현재 실행 중인 파싱 ID
   const [checkInterval, setCheckInterval] = useState(30)
   const [lastCheck, setLastCheck] = useState<Date | null>(null)
   const [status, setStatus] = useState<string>('')
@@ -64,6 +66,16 @@ export default function BMWReservationPanel({
       return
     }
     
+    // 중지 신호 확인
+    if (!isRunningRef.current) {
+      console.log('checkReservation 시작 전 중지됨')
+      return
+    }
+    
+    // 파싱 ID 생성 (이 파싱 작업을 식별)
+    const parsingId = ++currentParsingIdRef.current
+    console.log(`파싱 시작 ID: ${parsingId}`)
+    
     setStatus('예약 가능 여부 확인 중...')
     setLastCheck(new Date())
     
@@ -74,6 +86,12 @@ export default function BMWReservationPanel({
       const result = await window.electronAPI.bmw.monitor({ 
         selectedPrograms: selectedProgramData 
       })
+      
+      // 이 파싱이 여전히 유효한지 확인 (중지되었거나 새 파싱이 시작되었을 수 있음)
+      if (!isRunningRef.current || parsingId !== currentParsingIdRef.current) {
+        console.log(`파싱 ID ${parsingId} 무시됨 (현재 ID: ${currentParsingIdRef.current}, 실행 중: ${isRunningRef.current})`)
+        return
+      }
       
       if (!result.success) {
         setStatus(`❌ 확인 실패: ${result.message}`)
@@ -96,6 +114,11 @@ export default function BMWReservationPanel({
         setAvailableSlots([])
       }
     } catch (error) {
+      // 오류 발생 시에도 파싱 ID 확인
+      if (!isRunningRef.current || parsingId !== currentParsingIdRef.current) {
+        console.log(`파싱 ID ${parsingId} 오류 무시됨`)
+        return
+      }
       setStatus(`❌ 오류: ${error}`)
     }
   }
@@ -120,13 +143,15 @@ export default function BMWReservationPanel({
     
     // 먼저 isRunning을 true로 설정 (버튼 즉시 변경)
     setIsRunning(true)
+    isRunningRef.current = true
     
     try {
       const result = await window.electronAPI.bmw.initialize(credentials)
       
       if (!result.success) {
         setStatus(`❌ 로그인 실패: ${result.message || '알 수 없는 오류'}`)
-        setIsRunning(false) // 실패 시 다시 false로
+        setIsRunning(false)
+        isRunningRef.current = false
         return
       }
       
@@ -135,32 +160,88 @@ export default function BMWReservationPanel({
       // 모니터링 시작 시에는 프로그램 목록 업데이트 불필요
       // 이미 선택된 프로그램으로 예약 확인만 진행
       
-      // 즉시 한 번 확인
       const programNames = selectedPrograms.join(', ')
-      setStatus(`${programNames} 예약 확인 중...`)
-      await checkReservation()
       
-      // 주기적 확인 시작
-      const id = setInterval(() => {
-        checkReservation()
-      }, checkInterval * 1000)
+      // 연속 파싱 함수 (단순화)
+      const continuousMonitoring = async () => {
+        while (isRunningRef.current) {
+          const startTime = Date.now()
+          
+          try {
+            // checkReservation 실행
+            await checkReservation()
+            
+            // 중지 확인
+            if (!isRunningRef.current) {
+              console.log('파싱 완료 후 중지 신호 감지')
+              break
+            }
+            
+            const elapsedTime = Date.now() - startTime
+            const elapsedSeconds = Math.floor(elapsedTime / 1000)
+            
+            // 모니터링 중 상태만 업데이트 (checkReservation에서 이미 상태 설정함)
+            if (isRunningRef.current) {
+              console.log(`파싱 완료: ${elapsedSeconds}초 소요, 1초 후 다시 시작`)
+            }
+            
+            // 1초 대기 (중단 가능)
+            for (let i = 0; i < 10 && isRunningRef.current; i++) {
+              await new Promise(resolve => setTimeout(resolve, 100))
+            }
+            
+          } catch (error) {
+            console.error('모니터링 오류:', error)
+            
+            if (!isRunningRef.current) break
+            
+            setStatus(`⚠️ 오류 발생, 5초 후 재시도...`)
+            
+            // 5초 대기 (중단 가능)
+            for (let i = 0; i < 50 && isRunningRef.current; i++) {
+              await new Promise(resolve => setTimeout(resolve, 100))
+            }
+          }
+        }
+        
+        setStatus('⏹️ 모니터링 중지됨')
+        console.log('연속 모니터링 종료')
+      }
       
-      setIntervalId(id)
-      setStatus(`🔄 ${programNames} 모니터링 중... (${checkInterval}초마다 확인)`)
+      // 연속 모니터링 시작
+      continuousMonitoring()
+      setStatus(`🔄 ${programNames} 연속 모니터링 중...`)
       
     } catch (error) {
       setStatus(`❌ 오류: ${error}`)
-      setIsRunning(false) // 에러 시 다시 false로
+      setIsRunning(false)
+      isRunningRef.current = false
     }
   }
 
-  const stopMonitoring = () => {
+  const stopMonitoring = async () => {
+    console.log('모니터링 중지 요청')
+    
+    // 먼저 프론트엔드 상태 업데이트
+    setIsRunning(false)
+    isRunningRef.current = false
+    currentParsingIdRef.current = 0 // 파싱 ID 리셋
+    setStatus('⏹️ 모니터링 중지 중...')
+    
+    // 백엔드에 강제 중단 요청
+    try {
+      await window.electronAPI.bmw.stopMonitoring()
+      console.log('백엔드 모니터링 중단 완료')
+      setStatus('⏹️ 모니터링 중지됨')
+    } catch (error) {
+      console.error('모니터링 중단 오류:', error)
+      setStatus('⏹️ 모니터링 중지됨')
+    }
+    
     if (intervalId) {
       clearInterval(intervalId)
       setIntervalId(null)
     }
-    setIsRunning(false)
-    setStatus('⏹️ 모니터링 중지됨')
   }
 
   // 프로그램 리스트 가져오기 (로그인 불필요)
@@ -365,18 +446,9 @@ export default function BMWReservationPanel({
           onChange={(e) => setNotificationEmail(e.target.value)}
           className="w-full px-3 py-2 text-sm border rounded focus:outline-none focus:border-blue-400"
         />
-        <div className="space-y-2">
-          <label className="text-sm">확인 주기 (초)</label>
-          <select
-            value={checkInterval}
-            onChange={(e) => setCheckInterval(Number(e.target.value))}
-            className="w-full px-3 py-2 text-sm border rounded focus:outline-none focus:border-blue-400"
-          >
-            <option value="30">30초마다</option>
-            <option value="60">1분마다</option>
-            <option value="120">2분마다</option>
-            <option value="300">5분마다</option>
-          </select>
+        {/* 연속 모니터링 방식으로 변경되어 확인 주기 설정 제거 */}
+        <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+          ℹ️ 연속 모니터링: 파싱이 완료되면 바로 다시 확인을 시작합니다
         </div>
       </div>
 

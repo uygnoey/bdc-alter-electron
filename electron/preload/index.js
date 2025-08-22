@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     monitor: (params) => ipcRenderer.invoke('bmw:monitor', params),
     navigate: (params) => ipcRenderer.invoke('bmw:navigate', params),
     fetchProgramsOnly: () => ipcRenderer.invoke('bmw:fetch-programs-only'),
+    stopMonitoring: () => ipcRenderer.invoke('bmw:stop-monitoring'),
     
     // 기존 API (호환성 유지)
     analyzeSite: () => ipcRenderer.invoke('bmw:analyze-site'),

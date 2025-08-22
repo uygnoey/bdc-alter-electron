@@ -355,15 +355,35 @@ async function parsePrograms(view) {
 // 예약 가능 여부 확인 (BMW 스케줄 페이지용)
 async function checkAvailability(view, selectedPrograms) {
   try {
+    // 파싱 시작 시간 기록
+    const startTime = Date.now();
+    
     console.log('📅 예약 가능 여부 확인 시작...');
     console.log('선택된 프로그램:', selectedPrograms);
+    console.log('시작 시간:', new Date().toLocaleTimeString('ko-KR'));
+    
+    // 중단 신호 확인
+    if (monitoringAbortController && monitoringAbortController.signal.aborted) {
+      console.log('checkAvailability 시작 전 중단됨');
+      throw new Error('중단됨');
+    }
     
     // 스케줄 페이지에 도착했는지 확인
     const currentURL = view.webContents.getURL();
     if (!currentURL.includes('schedules/view')) {
       console.log('스케줄 페이지가 아닙니다. 이동 중...');
       await view.webContents.loadURL('https://driving-center.bmw.co.kr/orders/programs/schedules/view');
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // 중단 가능한 대기
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(resolve, 3000);
+        if (monitoringAbortController) {
+          monitoringAbortController.signal.addEventListener('abort', () => {
+            clearTimeout(timeout);
+            reject(new Error('중단됨'));
+          });
+        }
+      });
     }
     
     // 여러 달을 순회하며 예약 확인
@@ -372,6 +392,12 @@ async function checkAvailability(view, selectedPrograms) {
     const maxMonthsToCheck = 3; // 최대 3개월까지 확인
     
     while (monthsChecked < maxMonthsToCheck) {
+      // 중단 신호 확인
+      if (monitoringAbortController && monitoringAbortController.signal.aborted) {
+        console.log('월 순회 중 중단됨');
+        throw new Error('중단됨');
+      }
+      
       // 현재 월 정보 가져오기
       const currentMonthInfo = await view.webContents.executeJavaScript(`
         (function() {
@@ -467,6 +493,12 @@ async function checkAvailability(view, selectedPrograms) {
       
       // 이 달의 모든 날짜를 순회
       for (const dateInfo of availableDates) {
+      // 중단 신호 확인
+      if (monitoringAbortController && monitoringAbortController.signal.aborted) {
+        console.log('날짜 순회 중 중단됨');
+        throw new Error('중단됨');
+      }
+      
       console.log(`\n📆 ${dateInfo.date}일 확인 중...`);
       
       // 날짜 클릭
@@ -639,6 +671,12 @@ async function checkAvailability(view, selectedPrograms) {
         // swiper 컨트롤을 사용하여 각 프로그램 순회
         let programIndex = 0;
         for (const program of programsForDate) {
+          // 중단 신호 확인
+          if (monitoringAbortController && monitoringAbortController.signal.aborted) {
+            console.log('프로그램 순회 중 중단됨');
+            throw new Error('중단됨');
+          }
+          
           console.log(`\n📌 프로그램 상세 정보 확인: ${program.name}`);
           
           // 현재 보이는 프로그램 확인 및 전환
@@ -778,6 +816,12 @@ async function checkAvailability(view, selectedPrograms) {
               
               // 각 브랜드별로 처리
               for (const brand of brands) {
+                // 중단 신호 확인
+                if (monitoringAbortController && monitoringAbortController.signal.aborted) {
+                  console.log('브랜드 순회 중 중단됨');
+                  throw new Error('중단됨');
+                }
+                
                 console.log(`\n🚗 ${brand.name} 브랜드 선택 중...`);
                 
                 // 브랜드 클릭
@@ -818,6 +862,12 @@ async function checkAvailability(view, selectedPrograms) {
                 
                 // 각 시리즈별로 처리
                 for (const series of seriesList) {
+                  // 중단 신호 확인
+                  if (monitoringAbortController && monitoringAbortController.signal.aborted) {
+                    console.log('시리즈 순회 중 중단됨');
+                    throw new Error('중단됨');
+                  }
+                  
                   console.log(`    📍 ${series.name} 시리즈 확인 중...`);
                   
                   // 시리즈 클릭
@@ -860,18 +910,16 @@ async function checkAvailability(view, selectedPrograms) {
                   
                   // 각 차량별로 순회하면서 시간대 파싱
                   for (let carIndex = 0; carIndex < vehicleCount; carIndex++) {
+                    // 중단 신호 확인
+                    if (monitoringAbortController && monitoringAbortController.signal.aborted) {
+                      console.log('차량 순회 중 중단됨');
+                      throw new Error('중단됨');
+                    }
+                    
                     console.log(`\n        🔄 차량 ${carIndex + 1}/${vehicleCount} 처리 중...`);
                     
                     // 차량이 여러 대일 때만 swiper 이동
                     if (vehicleCount > 1) {
-                      // 이전 시간대 정보 저장 (변경 확인용)
-                      const beforeTimeInfo = await view.webContents.executeJavaScript(`
-                        (function() {
-                          const firstTime = document.querySelector('#orderTimeList a .time')?.textContent;
-                          return firstTime || 'none';
-                        })()
-                      `);
-                      
                       // 차량 swiper 이동
                       const moveResult = await view.webContents.executeJavaScript(`
                         (function() {
@@ -919,61 +967,147 @@ async function checkAvailability(view, selectedPrograms) {
                       
                       console.log(`          Swiper 이동: ${moveResult}`);
                       
-                      // 차량 변경 대기
-                      await new Promise(resolve => setTimeout(resolve, 1500));
-                      
-                      // 시간대가 변경되었는지 확인
-                      const afterTimeInfo = await view.webContents.executeJavaScript(`
+                      // 시간대가 동일할 수 있으므로 무조건 대기 후 파싱
+                      console.log(`          시간대 업데이트 대기 중... (5초)`);
+                      await new Promise(resolve => setTimeout(resolve, 5000)); // 5초 대기
+                    } else {
+                      // 차량이 1대일 때도 시간대 로드 대기
+                      console.log(`          단일 차량 - 시간대 로드 대기 중... (3초)`);
+                      await new Promise(resolve => setTimeout(resolve, 3000));
+                    }
+                    
+                    // DOM 상태 디버깅
+                    const domDebug = await view.webContents.executeJavaScript(`
+                      (function() {
+                        const debug = {
+                          thirdDepthBox: null,
+                          orderTimeList: null,
+                          orderTimeErrorBox: null,
+                          activeCarInfo: null,
+                          allCars: []
+                        };
+                        
+                        // thirdDepthBox 체크
+                        const thirdBox = document.querySelector('#thirdDepthBox');
+                        debug.thirdDepthBox = {
+                          exists: !!thirdBox,
+                          display: thirdBox ? thirdBox.style.display : 'not found',
+                          visible: thirdBox ? (thirdBox.style.display !== 'none') : false
+                        };
+                        
+                        // orderTimeList 체크
+                        const timeList = document.querySelector('#orderTimeList');
+                        debug.orderTimeList = {
+                          exists: !!timeList,
+                          display: timeList ? timeList.style.display : 'not found',
+                          visible: timeList ? (timeList.style.display !== 'none') : false,
+                          childCount: timeList ? timeList.querySelectorAll('a').length : 0
+                        };
+                        
+                        // orderTimeErrorBox 체크
+                        const errorBox = document.querySelector('#orderTimeErrorBox');
+                        debug.orderTimeErrorBox = {
+                          exists: !!errorBox,
+                          display: errorBox ? errorBox.style.display : 'not found',
+                          visible: errorBox ? (errorBox.style.display !== 'none') : false,
+                          message: errorBox ? errorBox.textContent.trim() : ''
+                        };
+                        
+                        // 모든 차량 리스트 확인
+                        const allCars = document.querySelectorAll('#carList .swiper-slide');
+                        debug.allCars = Array.from(allCars).map((car, i) => ({
+                          index: i,
+                          isDuplicate: car.classList.contains('swiper-slide-duplicate'),
+                          isActive: car.classList.contains('swiper-slide-active'),
+                          model: car.querySelector('.tit')?.textContent.trim() || 'no-title',
+                          hasSelectBtn: !!car.querySelector('a[onclick*="selectCar"]')
+                        }));
+                        
+                        // 활성 차량 정보 (duplicate 제외)
+                        const activeCar = document.querySelector('#carList .swiper-slide-active:not(.swiper-slide-duplicate)');
+                        if (activeCar) {
+                          debug.activeCarInfo = {
+                            model: activeCar.querySelector('.tit')?.textContent.trim(),
+                            hasSelectBtn: !!activeCar.querySelector('a[onclick*="selectCar"]')
+                          };
+                        } else {
+                          // duplicate 포함해서 다시 찾기
+                          const anyActiveCar = document.querySelector('#carList .swiper-slide-active');
+                          if (anyActiveCar) {
+                            debug.activeCarInfo = {
+                              model: anyActiveCar.querySelector('.tit')?.textContent.trim(),
+                              hasSelectBtn: !!anyActiveCar.querySelector('a[onclick*="selectCar"]'),
+                              isDuplicate: true
+                            };
+                          }
+                        }
+                        
+                        return debug;
+                      })()
+                    `);
+                    
+                    console.log(`          🔍 DOM 디버깅 정보:`);
+                    console.log(`            - thirdDepthBox: ${JSON.stringify(domDebug.thirdDepthBox)}`);
+                    console.log(`            - orderTimeList: ${JSON.stringify(domDebug.orderTimeList)}`);
+                    console.log(`            - orderTimeErrorBox: ${JSON.stringify(domDebug.orderTimeErrorBox)}`);
+                    console.log(`            - activeCar: ${JSON.stringify(domDebug.activeCarInfo)}`);
+                    console.log(`            - 전체 차량 수: ${domDebug.allCars.length}`);
+                    if (domDebug.allCars.length > 0 && domDebug.allCars.length <= 5) {
+                      domDebug.allCars.forEach(car => {
+                        console.log(`              [${car.index}] ${car.model} (active:${car.isActive}, dup:${car.isDuplicate})`);
+                      });
+                    }
+                    
+                    // 활성 차량이 없으면 첫 번째 차량 선택
+                    if (!domDebug.activeCarInfo) {
+                      console.log(`          ⚠️ 활성 차량이 없음 - 첫 번째 차량 선택 시도`);
+                      const firstCarSelected = await view.webContents.executeJavaScript(`
                         (function() {
-                          const firstTime = document.querySelector('#orderTimeList a .time')?.textContent;
-                          return firstTime || 'none';
+                          // 첫 번째 non-duplicate 차량 찾기
+                          const firstCar = document.querySelector('#carList .swiper-slide:not(.swiper-slide-duplicate)');
+                          if (firstCar) {
+                            const selectBtn = firstCar.querySelector('a[onclick*="selectCar"]');
+                            if (selectBtn) {
+                              console.log('첫 번째 차량 선택 버튼 클릭');
+                              selectBtn.click();
+                              return true;
+                            } else {
+                              // 차량 자체를 클릭
+                              console.log('첫 번째 차량 클릭');
+                              firstCar.click();
+                              return true;
+                            }
+                          }
+                          return false;
                         })()
                       `);
                       
-                      console.log(`          시간대 변경 확인: ${beforeTimeInfo} → ${afterTimeInfo}`);
-                      
-                      // 시간대가 실제로 업데이트될 때까지 대기 (SPA이므로 비동기 로딩)
-                      let waitCount = 0;
-                      const maxWait = 10; // 최대 5초 대기 (500ms * 10)
-                      
-                      while (waitCount < maxWait) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        
-                        const currentTimeInfo = await view.webContents.executeJavaScript(`
-                          (function() {
-                            const timeList = document.querySelector('#orderTimeList');
-                            if (!timeList) return 'no-list';
-                            
-                            // 로딩 중인지 확인
-                            if (timeList.classList.contains('loading') || 
-                                timeList.style.opacity === '0.5' ||
-                                timeList.querySelector('.spinner')) {
-                              return 'loading';
-                            }
-                            
-                            const firstTime = timeList.querySelector('a .time')?.textContent;
-                            return firstTime || 'empty';
-                          })()
-                        `);
-                        
-                        // 시간대가 변경되었거나 로딩이 완료되면 탈출
-                        if (currentTimeInfo !== 'loading' && currentTimeInfo !== beforeTimeInfo) {
-                          console.log(`          ✅ 시간대 업데이트 완료 (${waitCount * 500}ms 대기)`);
-                          break;
-                        }
-                        
-                        waitCount++;
+                      if (firstCarSelected) {
+                        console.log(`          첫 번째 차량 선택 후 대기 중... (3초)`);
+                        await new Promise(resolve => setTimeout(resolve, 3000));
                       }
+                    }
+                    // 차량 선택 버튼이 있으면 클릭
+                    else if (domDebug.activeCarInfo?.hasSelectBtn) {
+                      console.log(`          🖱️ 차량 선택 버튼 클릭 필요`);
+                      await view.webContents.executeJavaScript(`
+                        (function() {
+                          const activeCar = document.querySelector('#carList .swiper-slide-active');
+                          const selectBtn = activeCar?.querySelector('a[onclick*="selectCar"]');
+                          if (selectBtn) {
+                            console.log('차량 선택 버튼 클릭');
+                            selectBtn.click();
+                            return true;
+                          }
+                          return false;
+                        })()
+                      `);
                       
-                      if (waitCount >= maxWait) {
-                        console.log(`          ⚠️ 시간대 업데이트 타임아웃 (5초 대기)`);
-                      }
-                    } else {
-                      // 차량이 1대일 때도 시간대 로드 대기
-                      await new Promise(resolve => setTimeout(resolve, 1000));
+                      console.log(`          차량 선택 후 시간대 로드 대기 중... (3초)`);
+                      await new Promise(resolve => setTimeout(resolve, 3000));
                     }
                     
-                    // 현재 활성 차량 정보 가져오기
+                    // 현재 활성 차량 정보 가져오기 (인덱스 기반으로 직접 가져오기)
                     const vehicleInfo = await view.webContents.executeJavaScript(`
                       (function() {
                         const thirdDepthBox = document.querySelector('#thirdDepthBox');
@@ -981,20 +1115,43 @@ async function checkAvailability(view, selectedPrograms) {
                           return null;
                         }
                         
-                        // 현재 활성 차량 정보 추출
-                        const activeCar = document.querySelector('#carList .swiper-slide-active:not(.swiper-slide-duplicate)');
-                        if (!activeCar) {
-                          console.log('활성 차량을 찾을 수 없음');
+                        // 모든 non-duplicate 차량 가져오기
+                        const allSlides = Array.from(document.querySelectorAll('#carList .swiper-slide:not(.swiper-slide-duplicate)'));
+                        console.log('전체 차량 수:', allSlides.length, ', 요청 인덱스:', ${carIndex});
+                        
+                        // 요청된 인덱스의 차량 직접 가져오기
+                        const targetCar = allSlides[${carIndex}];
+                        
+                        if (!targetCar) {
+                          console.log('인덱스 ' + ${carIndex} + '의 차량을 찾을 수 없음');
+                          // 활성 차량 대신 사용
+                          const activeCar = document.querySelector('#carList .swiper-slide-active');
+                          if (activeCar) {
+                            const model = activeCar.querySelector('.tit')?.textContent.trim();
+                            const priceText = activeCar.querySelector('.infoIco .text')?.textContent.trim();
+                            return {
+                              brand: '${brand.name}',
+                              series: '${series.name}',
+                              model: model,
+                              price: priceText || '',
+                              requestedIndex: ${carIndex},
+                              actualIndex: -1,
+                              fallback: true
+                            };
+                          }
                           return null;
                         }
                         
-                        const subTit = activeCar.querySelector('.subTit')?.textContent.trim();
-                        const model = activeCar.querySelector('.tit')?.textContent.trim();
-                        const priceText = activeCar.querySelector('.infoIco .text')?.textContent.trim();
+                        const subTit = targetCar.querySelector('.subTit')?.textContent.trim();
+                        const model = targetCar.querySelector('.tit')?.textContent.trim();
+                        const priceText = targetCar.querySelector('.infoIco .text')?.textContent.trim();
                         
-                        // 현재 인덱스 확인
-                        const allSlides = Array.from(document.querySelectorAll('#carList .swiper-slide:not(.swiper-slide-duplicate)'));
-                        const actualIndex = allSlides.indexOf(activeCar);
+                        // 이 차량을 선택/클릭
+                        const selectBtn = targetCar.querySelector('a[onclick*="selectCar"]');
+                        if (selectBtn) {
+                          console.log('차량 선택 버튼 클릭');
+                          selectBtn.click();
+                        }
                         
                         return {
                           brand: '${brand.name}',
@@ -1002,7 +1159,7 @@ async function checkAvailability(view, selectedPrograms) {
                           model: model,
                           price: priceText || '',
                           requestedIndex: ${carIndex},
-                          actualIndex: actualIndex
+                          actualIndex: ${carIndex}
                         };
                       })()
                     `);
@@ -1010,45 +1167,77 @@ async function checkAvailability(view, selectedPrograms) {
                     if (vehicleInfo) {
                       console.log(`        🚗 ${vehicleInfo.model} (${vehicleInfo.price})`);
                       
-                      // 차량 클릭은 생략 - swiper 이동만으로 시간대가 변경되어야 함
-                      // SPA이므로 swiper 이동 시 자동으로 시간대 업데이트됨
+                      // 차량 선택 후 시간대 로드 대기
+                      if (vehicleInfo.requestedIndex !== vehicleInfo.actualIndex || vehicleInfo.fallback) {
+                        console.log(`          차량 선택 후 시간대 로드 대기 중... (3초)`);
+                        await new Promise(resolve => setTimeout(resolve, 3000));
+                      }
                       
                       // 현재 차량의 시간대 정보 파싱
                       const timeSlots = await view.webContents.executeJavaScript(`
                         (function() {
                           const timeSlots = [];
                           
-                          // orderTimeList가 표시되는지 확인
+                          // 현재 활성 차량 정보
+                          const activeCar = document.querySelector('#carList .swiper-slide-active:not(.swiper-slide-duplicate)');
+                          const carModel = activeCar?.querySelector('.tit')?.textContent.trim();
+                          console.log('현재 차량:', carModel);
+                          
+                          // orderTimeList 확인
                           const orderTimeList = document.querySelector('#orderTimeList');
-                          if (!orderTimeList || orderTimeList.style.display === 'none') {
-                            console.log('orderTimeList가 숨겨져 있음 - 차량 선택이 제대로 되지 않음');
+                          console.log('orderTimeList 존재:', !!orderTimeList);
+                          console.log('orderTimeList display:', orderTimeList ? orderTimeList.style.display : 'null');
+                          
+                          if (!orderTimeList) {
+                            console.log('❌ orderTimeList 요소가 없음');
                             return [];
                           }
                           
-                          const timeList = document.querySelectorAll('#orderTimeList a');
+                          // 모든 시간대 링크 가져오기 (p.tit 제외)
+                          const timeList = orderTimeList.querySelectorAll('a');
                           console.log('시간대 슬롯 개수:', timeList.length);
                           
-                          timeList.forEach(timeSlot => {
-                            const timeText = timeSlot.querySelector('.time')?.textContent.trim();
-                            const seatText = timeSlot.querySelector('.seat')?.textContent.trim();
+                          if (timeList.length === 0) {
+                            console.log('❌ 시간대 슬롯이 없음');
+                            console.log('orderTimeList innerHTML:', orderTimeList.innerHTML.substring(0, 200));
+                            return [];
+                          }
+                          
+                          // 각 시간대 파싱
+                          timeList.forEach((timeSlot, index) => {
+                            const timeEl = timeSlot.querySelector('.time');
+                            const seatEl = timeSlot.querySelector('.seat');
+                            
+                            const timeText = timeEl ? timeEl.textContent.trim() : '';
+                            const seatText = seatEl ? seatEl.textContent.trim() : '';
                             const isDisabled = timeSlot.classList.contains('disabled');
+                            
+                            console.log('시간대 ' + index + ': time=' + timeText + ', seat=' + seatText + ', disabled=' + isDisabled);
                             
                             if (timeText) {
                               let remainingSeats = 0;
-                              if (seatText && !seatText.includes('매진')) {
-                                const match = seatText.match(/(\\d+)석/);
-                                remainingSeats = match ? parseInt(match[1]) : 0;
+                              
+                              // "2석" 또는 "0석/매진" 형태 처리
+                              if (seatText) {
+                                const match = seatText.match(/^(\\d+)석/);
+                                if (match) {
+                                  remainingSeats = parseInt(match[1]);
+                                }
                               }
+                              
+                              // available 판단: disabled가 아니고 잔여석이 있을 때
+                              const available = !isDisabled && remainingSeats > 0;
                               
                               timeSlots.push({
                                 time: timeText,
                                 remainingSeats: remainingSeats,
-                                available: !isDisabled && remainingSeats > 0,
-                                fullText: seatText || ''
+                                available: available,
+                                fullText: seatText
                               });
                             }
                           });
                           
+                          console.log('총 파싱된 시간대:', timeSlots.length);
                           return timeSlots;
                         })()
                       `);
@@ -1058,11 +1247,30 @@ async function checkAvailability(view, selectedPrograms) {
                         timeSlots: timeSlots
                       });
                       
-                      const availableCount = timeSlots.filter(t => t.available).length;
-                      if (availableCount > 0) {
-                        console.log(`          ✅ ${availableCount}개 시간대 예약 가능`);
+                      console.log(`          📊 시간대 파싱 결과:`);
+                      console.log(`            - 전체 시간대: ${timeSlots.length}개`);
+                      
+                      if (timeSlots.length > 0) {
+                        // 처음 3개 시간대 샘플 표시
+                        timeSlots.slice(0, 3).forEach(slot => {
+                          console.log(`            - ${slot.time}: ${slot.fullText} (${slot.available ? '예약가능' : '매진'})`);
+                        });
+                        if (timeSlots.length > 3) {
+                          console.log(`            ... 외 ${timeSlots.length - 3}개`);
+                        }
+                        
+                        const availableCount = timeSlots.filter(t => t.available).length;
+                        if (availableCount > 0) {
+                          console.log(`          ✅ 예약 가능: ${availableCount}개 시간대`);
+                          const availableSlots = timeSlots.filter(t => t.available);
+                          availableSlots.slice(0, 2).forEach(slot => {
+                            console.log(`            🎯 ${slot.time} (${slot.remainingSeats}석)`);
+                          });
+                        } else {
+                          console.log(`          ❌ 모든 시간대 매진`);
+                        }
                       } else {
-                        console.log(`          ❌ 예약 가능한 시간대 없음`);
+                        console.log(`          ⚠️ 시간대 정보 없음 - 차량 선택 안됨 또는 로딩 실패`);
                       }
                     }
                   }
@@ -1336,6 +1544,13 @@ async function checkAvailability(view, selectedPrograms) {
       ).length;
     }, 0);
     
+    // 파싱 종료 시간 및 소요 시간 계산
+    const endTime = Date.now();
+    const elapsedTime = endTime - startTime;
+    const elapsedSeconds = Math.floor(elapsedTime / 1000);
+    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+    const remainingSeconds = elapsedSeconds % 60;
+    
     console.log('\n' + '='.repeat(60));
     console.log('📊 최종 예약 가능 여부 확인 결과');
     console.log('='.repeat(60));
@@ -1346,6 +1561,8 @@ async function checkAvailability(view, selectedPrograms) {
     if (allProgramNames.length > 0) {
       console.log(`프로그램 종류: ${allProgramNames.join(', ')}`);
     }
+    console.log(`⏱️ 파싱 소요 시간: ${elapsedMinutes}분 ${remainingSeconds}초 (${elapsedTime}ms)`);
+    console.log(`종료 시간: ${new Date().toLocaleTimeString('ko-KR')}`);
     console.log('='.repeat(60) + '\n');
     
     return {
@@ -1358,10 +1575,22 @@ async function checkAvailability(view, selectedPrograms) {
       programNames: allProgramNames,
       monthsData: allMonthsData,
       slots: allProgramsInfo,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      elapsedTime: elapsedTime,
+      elapsedTimeFormatted: `${elapsedMinutes}분 ${remainingSeconds}초`
     };
     
   } catch (error) {
+    if (error.message === '중단됨') {
+      console.log('예약 확인이 중단되었습니다');
+      return { 
+        hasAvailability: false, 
+        count: 0, 
+        slots: [],
+        error: '모니터링 중단됨',
+        timestamp: new Date().toISOString()
+      };
+    }
     console.error('예약 확인 중 오류:', error);
     return { 
       hasAvailability: false, 
@@ -1522,22 +1751,70 @@ ipcMain.handle('bmw:initialize', async (event, { username, password }) => {
   }
 });
 
+// 전역 변수로 현재 모니터링 상태 저장
+let isMonitoringActive = false;
+let monitoringAbortController = null;
+
 // 예약 모니터링
 ipcMain.handle('bmw:monitor', async (event, { selectedPrograms }) => {
   const view = getActiveBrowserView();
   if (!view) return { success: false, message: 'No active browser view' };
   
+  // 모니터링 시작
+  isMonitoringActive = true;
+  monitoringAbortController = new AbortController();
+  
   try {
+    // 중단 신호 확인
+    if (monitoringAbortController.signal.aborted) {
+      console.log('모니터링이 중단되었습니다');
+      return { success: false, message: '모니터링 중단됨' };
+    }
+    
     // 현재 페이지가 스케줄 페이지인지 확인
     const currentURL = view.webContents.getURL();
     if (!currentURL.includes('schedules/view')) {
       await view.webContents.loadURL('https://driving-center.bmw.co.kr/orders/programs/schedules/view');
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // 중단 가능한 대기
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(resolve, 3000);
+        monitoringAbortController.signal.addEventListener('abort', () => {
+          clearTimeout(timeout);
+          reject(new Error('중단됨'));
+        });
+      }).catch(() => {
+        console.log('페이지 로드 중 중단됨');
+        return { success: false, message: '모니터링 중단됨' };
+      });
+    }
+    
+    // 중단 신호 확인
+    if (monitoringAbortController.signal.aborted) {
+      console.log('모니터링이 중단되었습니다');
+      return { success: false, message: '모니터링 중단됨' };
     }
     
     // 페이지 새로고침 (최신 데이터 확인)
     await view.webContents.reload();
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // 중단 가능한 대기
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(resolve, 2000);
+      monitoringAbortController.signal.addEventListener('abort', () => {
+        clearTimeout(timeout);
+        reject(new Error('중단됨'));
+      });
+    }).catch(() => {
+      console.log('새로고침 중 중단됨');
+      return { success: false, message: '모니터링 중단됨' };
+    });
+    
+    // 중단 신호 확인
+    if (monitoringAbortController.signal.aborted) {
+      console.log('모니터링이 중단되었습니다');
+      return { success: false, message: '모니터링 중단됨' };
+    }
     
     // 예약 가능 여부 확인
     const availability = await checkAvailability(view, selectedPrograms);
@@ -1548,8 +1825,38 @@ ipcMain.handle('bmw:monitor', async (event, { selectedPrograms }) => {
     };
     
   } catch (error) {
+    if (error.message === '중단됨') {
+      return { success: false, message: '모니터링 중단됨' };
+    }
     return { success: false, message: error.message };
+  } finally {
+    isMonitoringActive = false;
+    monitoringAbortController = null;
   }
+});
+
+// 모니터링 강제 중단
+ipcMain.handle('bmw:stop-monitoring', async () => {
+  console.log('🛑 모니터링 강제 중단 요청');
+  
+  if (monitoringAbortController) {
+    monitoringAbortController.abort();
+  }
+  
+  isMonitoringActive = false;
+  
+  // BrowserView 강제 중단 (페이지 로딩 중단)
+  const view = getActiveBrowserView();
+  if (view) {
+    try {
+      view.webContents.stop(); // 현재 로딩 중인 모든 작업 중단
+      console.log('BrowserView 로딩 중단됨');
+    } catch (error) {
+      console.error('BrowserView 중단 오류:', error);
+    }
+  }
+  
+  return { success: true, message: '모니터링 중단됨' };
 });
 
 // 페이지 네비게이션

@@ -21,6 +21,12 @@ declare global {
         checkReservation: (programs: string[]) => Promise<any>
         fetchPrograms: () => Promise<any>
         onProgramsUpdated: (callback: (data: any) => void) => void
+        // 새로운 API
+        initialize: (credentials: { username: string; password: string }) => Promise<any>
+        monitor: (params: { selectedPrograms: any[] }) => Promise<any>
+        navigate: (params: { url: string }) => Promise<any>
+        fetchProgramsOnly: () => Promise<any>
+        stopMonitoring: () => Promise<any>
       }
     }
   }
